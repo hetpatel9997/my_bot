@@ -7,3 +7,8 @@ controller_manager:
 diff_cont:
   ros__parameters:
     enable_odom_tf: true
+    # TEMPORARY sim-only override: the URDF wheels (robot_core.xacro: radius 0.05, y = +/-0.175)
+    # do not match the real robot values in my_controllers.yaml yet. Remove these two lines once
+    # the URDF is updated to the rebuilt robot (see CLAUDE.md, "Drive calibration").
+    wheel_separation: 0.35
+    wheel_radius: 0.05

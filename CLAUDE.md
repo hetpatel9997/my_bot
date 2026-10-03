@@ -54,6 +54,13 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   teleop_twist_keyboard --ros-args -r cmd_vel:=/diff_cont/cmd_vel_unstamped -p speed:=0.1 -p turn:=0.5`;
   VM: `rviz2 -d ~/dev_ws/src/my_bot/config/drive_test.rviz` (fixed frame odom, robot model, /scan, TF).
   twist_mux is not installed on the Pi and its config (`use_stamped: true`) does not match diff_cont.
+- Gazebo coverage test (VM only; run `ros_local` first in EVERY terminal so the sim stays off the
+  Pi's discovery server): world `worlds/room.world` (5 x 4 m, table + couch boxes, robot spawns at
+  the centre); `launch_sim.launch.py world:=...`, `online_async_launch.py` (SLAM), `map_saver_cli`,
+  `localization_launch.py` + `navigation_launch.py` with `map:=` and `use_sim_time:=true`,
+  `coverage.launch.py use_sim_time:=true`, RViz `config/coverage_sim.rviz`. In sim nothing publishes
+  `/odom` (no EKF; diff_cont publishes `/diff_cont/odom` + the odom TF), so Nav2 gets no odometry
+  velocity there; it still navigates. A cold first Gazebo start can exceed spawn_entity's 30 s; rerun.
 
 ## How the robot actually runs (updated 2026-10-02)
 - Boot: the ONLY robot-related systemd service is `fastdds.service` (FastDDS discovery server,
@@ -129,6 +136,20 @@ camera_link, camera_link_optical, arm_base_link ... spray_nozzle_link.
 - Phase 9–10: arm, spray, precision alignment, TreatWeed action.
 - Phase 11: mission executor, docking, battery, safety.
 Each phase ends with a verification test; do not move on until it passes.
+
+### Drive calibration: PENDING until after the drivetrain rebuild (noted 2026-10-02)
+Hardware is on the bench, not in the chassis; rebuild = caster in front, 30T:40T gears. Open items:
+- (a) diff_cont odom showed 0.227 m/s for a 0.1 m/s teleop command on the bench. Check
+  `loop_rate` in `ros2_control.xacro` (30) against `PID_RATE` in ROSArduinoBridge and the owner's
+  uncommitted edits to `~/robot_ws/src/diffdrive_arduino/hardware/diffbot_system.cpp`.
+- (b) Encoder counts per wheel turn (`enc_counts_per_rev`, now 3436) unverified.
+- (c) IMU `axis_signs` (imu_ekf.launch.py) and imu.xacro pose to verify after mounting.
+- (d) Occasional IMU I2C read errors when the motors start (check wiring/power/noise).
+- After the rebuild, update the URDF (`robot_core.xacro`: wheel radius, wheel positions/separation,
+  caster) to the real robot's measured dimensions, matching `my_controllers.yaml`. Then delete the
+  sim-only `wheel_separation`/`wheel_radius` override in `config/gaz_ros2_ctl_use_sim.yaml`, so sim
+  and real share one set of dimensions. (Today URDF wheels: r 0.05, sep 0.35; controller: r 0.06985,
+  sep 0.1895.)
 
 ## Hard safety rules
 - The backyard has a swimming pool. LiDAR cannot see water. Any outdoor navigation config
