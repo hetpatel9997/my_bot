@@ -1,10 +1,25 @@
 coverage_planner:
   ros__parameters:
-    lane_spacing: 0.40        # metres between lanes; set to the camera swath width later
-    robot_radius: 0.18        # half of the robot's widest dimension (355 x 249 mm frame -> 0.18)
-    margin: 0.10              # extra clearance from walls
-    coverage_radius: 0.20     # half the lane spacing, so adjacent lanes just touch
-    min_segment_len: 0.30     # ignore lane pieces shorter than this
+    # Robot size is NOT set here: it is read from the footprint (+ padding) in nav2_params.yaml,
+    # the same outline Nav2 plans and drives with.
+    clearance_margin: 0.09             # m extra gap on top of footprint_padding (~2 costmap cells:
+                                       # less and RPP's footprint collision check fires near walls)
+    # -> centre keeps >= 0.325 m from obstacles on straight runs, >= 0.40 m where it turns.
+    max_cost: 50                       # global costmap (0-100): every path point stays below this
+    costmap_topic: /global_costmap/costmap
+
+    # Coverage pattern (choose per run: see the top of scripts/coverage_planner_node.py)
+    pattern: medium                    # dense 0.25 m | medium 0.35 m | wide 0.50 m | custom
+    lane_spacing: 0.35                 # m, only used when pattern is custom
+    lane_angle: auto                   # auto = lanes along the longest side, or degrees (0 = +x)
+    perimeter_laps: 1                  # 0, 1 or 2 loops along walls/obstacles before the lanes
+    coverage_radius: 0.225             # m, half the swath one pass covers (for /coverage_grid)
+    min_segment_len: 0.30              # m, ignore lane pieces shorter than this
+    path_resolution: 0.05              # m between path poses sent to the controller
+
     map_topic: /map
     global_frame: map
     base_frame: base_link
+    planner_id: GridBased              # Nav2 planner used for the joins between segments
+    controller_id: FollowPath          # Nav2 controller (Regulated Pure Pursuit)
+    goal_checker_id: general_goal_checker

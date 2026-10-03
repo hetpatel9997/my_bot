@@ -156,9 +156,23 @@ camera_link, camera_link_optical, arm_base_link ... spray_nozzle_link.
   camera in URDF/TF.
 - Phase 2 (in progress): MPU6050 + robot_localization EKF (odom + IMU). Files: mpu6050_node.py,
   ekf.yaml, imu.xacro, imu_ekf.launch.py.
-- Phase 3: coverage (boustrophedon lanes via coverage_planner_node, NavigateToPose per lane end,
-  /coverage/plan|start|stop). INDOOR ONLY for now: the planner reads /map and does not yet honour
-  a keepout mask, so outdoor use needs the Nav2 keepout filter (pool + 1 m) wired in first.
+- Phase 3: coverage via coverage_planner_node (robot-vacuum style: perimeter laps, then lanes
+  with smooth U-turns, all sent as ONE path to Nav2's FollowPath / Regulated Pure Pursuit; the
+  planner only fills joins). Robot size comes from the local costmap footprint in nav2_params.
+  INDOOR ONLY for now: it plans on /map + the global costmap and does not yet honour a keepout
+  mask, so outdoor use needs the Nav2 keepout filter (pool + 1 m) wired in first.
+  Options (per run; any change discards the old plan):
+    ros2 launch my_bot coverage.launch.py use_sim_time:=true pattern:=dense lane_angle:=90 perimeter_laps:=2
+    ros2 param set /coverage_planner pattern wide        # dense 0.25 | medium 0.35 (default) | wide 0.50 | custom
+    ros2 param set /coverage_planner lane_spacing 0.30   # with pattern custom
+    ros2 param set /coverage_planner lane_angle 45       # degrees, or auto (fewest lane pieces)
+    ros2 param set /coverage_planner perimeter_laps 0    # 0, 1 or 2
+    ros2 service call /coverage/plan std_srvs/srv/Trigger    # preview /coverage_path in RViz
+    ros2 service call /coverage/start std_srvs/srv/Trigger   # /coverage/stop to cancel
+  Room-world results 2026-10-03 (headless, perimeter_laps 1): dense 88% in 328 s, medium 89% in
+  307 s, wide 80% in 226 s (wide lanes are 0.50 m apart, wider than the 0.45 m swath, so gaps are
+  expected); 2-4 controller aborts per run, all recovered by retry/skip at the same two spots.
+  Needs python3-scipy (apt) on the Pi.
 - Phase 4: detector node on the Pi (low fps is fine). Needs Phase 1 camera.
 - Phase 5: weed localization to map frame, verified within 10 cm at 1 m.
 - Phase 6: weed_manager + NavigateToPose to a standoff pose.
