@@ -181,6 +181,18 @@ Hardware is on the bench, not in the chassis; rebuild = caster in front, 30T:40T
   and real share one set of dimensions. (Today URDF wheels: r 0.05, sep 0.35; controller: r 0.06985,
   sep 0.1895.)
 
+## Rules for automated tests (Claude) on the VM
+- Every headless test runs isolated from the owner's sessions: `ROS_DOMAIN_ID=42`,
+  `ROS_LOCALHOST_ONLY=1`, `ROS_DISCOVERY_SERVER` and `FASTRTPS_DEFAULT_PROFILES_FILE` unset, and
+  `GAZEBO_MASTER_URI=http://127.0.0.1:11346` (Gazebo's own transport ignores ROS domains; the
+  owner's Gazebo uses the default port 11345).
+- When a test ends (pass, fail or abort), stop everything it started:
+  `~/dev_ws/src/my_bot/scripts/sim_cleanup.sh --domain 42`, and check it exits 0 ("Clean").
+  Never stop processes in other domains; if the owner's sim is running and a test needs the CPU,
+  ask the owner to stop it.
+- `scripts/sim_cleanup.sh` (no arguments) is the owner's full reset: stops ALL sim/Nav2/RViz
+  processes in every domain and clears `/dev/shm/fastrtps_*`. `--dry-run` lists only.
+
 ## Hard safety rules
 - The backyard has a swimming pool. LiDAR cannot see water. Any outdoor navigation config
   MUST include a keepout zone around the pool with at least 1 m margin. Refuse to generate

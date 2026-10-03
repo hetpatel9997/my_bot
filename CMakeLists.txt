@@ -42,6 +42,7 @@ install(PROGRAMS
   scripts/mpu6050_node.py
   scripts/coverage_planner_node.py
   scripts/sim_odom_check.py
+  scripts/sim_cleanup.sh
   DESTINATION lib/${PROJECT_NAME}
 )
 
