@@ -28,7 +28,10 @@
     <gazebo reference="camera_link">
         <material>Gazebo/Red</material>
 
-
+       <!-- Simulated camera only when sim_camera:=true (default false): it renders 640x480 at
+            10 Hz even in headless Gazebo and nothing uses it until Phase 1. The links/frames
+            above always exist; the real camera driver is unaffected. -->
+       <xacro:if value="$(arg sim_camera)">
        <sensor  name="camera" type="camera">
             <pose> 0 0 0 0 0 0 </pose>
             <visualize>true</visualize>
@@ -49,6 +52,7 @@
                 <frame_name>camera_link_optical</frame_name>
             </plugin>
         </sensor>
+       </xacro:if>
     </gazebo>
 
 

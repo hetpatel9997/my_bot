@@ -19,7 +19,8 @@ def generate_launch_description():
                 PythonLaunchDescriptionSource([os.path.join(
                     get_package_share_directory(package_name),'launch','rsp.launch.py'
                 )]), launch_arguments={'use_sim_time': 'true',
-                                  'wheel_mu': LaunchConfiguration('wheel_mu')}.items()
+                                  'wheel_mu': LaunchConfiguration('wheel_mu'),
+                                  'sim_camera': LaunchConfiguration('sim_camera')}.items()
     )
 
     # 2. Include the Gazebo Classic launch file, provided by the gazebo_ros package
@@ -74,7 +75,9 @@ def generate_launch_description():
         DeclareLaunchArgument('gui', default_value='true',
                               description='Show the Gazebo window (false = headless, much lighter)'),
         DeclareLaunchArgument('wheel_mu', default_value='1.0',
-                              description='Wheel friction; e.g. 0.1 to test slip'),
+                              description='Wheel friction; e.g. 0.03 to test slip'),
+        DeclareLaunchArgument('sim_camera', default_value='false',
+                              description='Simulate the camera (costly; needed from Phase 1)'),
         rsp,
         gazebo,
         spawn_entity,

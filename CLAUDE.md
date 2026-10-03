@@ -75,7 +75,8 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   bias), and launch_sim passes `use_mpu6050:=false use_sim_time:=true`. The VM needs
   `ros-humble-robot-localization` (apt) or launch_sim will not start.
 - `launch_sim.launch.py` args: `world`, `gui` (default true; false = no Gazebo window),
-  `wheel_mu` (Gazebo wheel friction, default 1.0; 0.03 shows wheel slip, 0.01 heavy slip).
+  `wheel_mu` (Gazebo wheel friction, default 1.0; 0.03 shows wheel slip, 0.01 heavy slip),
+  `sim_camera` (default false; the Gazebo camera costs a lot of CPU, turn on for Phase 1).
 - `ros2 run my_bot sim_odom_check.py` (sim only, refuses without /clock): drives 1 m and 360 deg,
   stopping on Gazebo's true pose (`/ground_truth/odom`, p3d plugin in sim-only
   `description/sim_ground_truth.xacro`), and compares `/odom` (EKF) and `/diff_cont/odom` with it.
@@ -84,10 +85,13 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   mu 0.03: EKF -11.6 cm / -0.4 deg;  wheels -11.6 cm / +14.2 deg. The EKF fixes HEADING under slip
   (gyro yaw rate); it cannot fix DISTANCE (only wheel speed is fused), and neither sees sideways slide.
 - VM performance (2 cores, 3.8 GB, VMware SVGA3D GPU; driver crash traces in the desktop log):
-  real-time factor 0.97-0.99 headless, 0.88 headless + SLAM, 0.37 with the Gazebo window.
-  Use `gui:=false`; never set LIBGL_ALWAYS_SOFTWARE (forces llvmpipe). Further options: give the
-  VM 4 cores / 6-8 GB, disable the sim camera (640x480 @ 10 Hz renders even headless) until Phase 1,
-  500 Hz physics in the world, lower RViz Frame Rate.
+  real-time factor 0.37 with the Gazebo window. Since 2026-10-03 (sim camera off by default,
+  room.world physics 500 Hz): 1.00 headless, 0.99 headless + SLAM + Nav2 (load ~2).
+  2026-10-03 a full stack with RViz + AMCL + Nav2 + coverage + teleops reached load 14 with
+  229 MB free and gzserver FROZE (threads stuck in futex waits, /clock stopped, Nav2 lifecycle
+  never finished -> all goals rejected). If goals do nothing: check `ros2 topic hz /clock` and
+  `ros2 lifecycle get /bt_navigator` first. Use `gui:=false`, start RViz last, never set
+  LIBGL_ALWAYS_SOFTWARE (forces llvmpipe). Best fix: give the VM 4 cores / 6-8 GB.
 ## How the robot actually runs (updated 2026-10-02)
 - Boot: the ONLY robot-related systemd service is `fastdds.service` (FastDDS discovery server,
   `fastdds discovery --server-id 0`, listening on 0.0.0.0:11811). Nothing ROS starts at boot and

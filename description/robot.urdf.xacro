@@ -6,6 +6,8 @@
     <!-- Gazebo wheel friction (sim only; the real robot ignores <gazebo> tags). 1.0 = normal grip,
          e.g. 0.1 = slippery floor to show the EKF keeping the heading with the IMU. -->
     <xacro:arg name="wheel_mu" default="1.0"/>
+    <!-- Gazebo camera sensor (sim only). Off by default to save CPU; true for Phase 1 work. -->
+    <xacro:arg name="sim_camera" default="false"/>
 
     <xacro:include filename="robot_core.xacro" />
 

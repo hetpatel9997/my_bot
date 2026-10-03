@@ -7,8 +7,9 @@
     <include><uri>model://ground_plane</uri></include>
     <include><uri>model://sun</uri></include>
     <physics type="ode">
-      <real_time_update_rate>1000.0</real_time_update_rate>
-      <max_step_size>0.001</max_step_size>
+      <!-- 500 Hz physics (default 1000) halves the physics load on the 2-core VM -->
+      <real_time_update_rate>500.0</real_time_update_rate>
+      <max_step_size>0.002</max_step_size>
     </physics>
     <model name="wall_north">
       <static>true</static>
