@@ -43,6 +43,17 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   (commands `e` read encoders -> "L R", `m L R` motor speeds, `u` PID; verified 2026-10-02:
   `e` -> `0 0`). The Pi's `~/robot_ws/src/diffdrive_arduino` has uncommitted local edits (May 2026).
 - Phase 2 EKF (`ekf.yaml`) reads `/diff_cont/odom` from this stack; `launch_robot.launch.py` includes it.
+- LiDAR: `ros2 launch my_bot lidar.launch.py` (ldlidar_stl_ros2 from `~/robot_ws/src`, params in
+  `config/ldlidar.yaml`: LD19 mode, 230400, `frame_id: laser_frame`, default port `/dev/ldlidar`
+  = udev symlink to the CP2102 (10c4:ea60), currently ttyUSB0). No static TF: the URDF provides
+  `laser_frame` (chassis + x 0.175, z 0.175). Do not use the vendor `ld06.launch.py` (frame
+  `base_laser` + its own static TF).
+- Drive test (manual, nothing starts at boot). Pi terminal 1: `ros2 launch my_bot launch_robot.launch.py`
+  (keep the robot still ~3 s for IMU calibration); Pi terminal 2: `ros2 launch my_bot lidar.launch.py`;
+  Pi terminal 3 (owner only, wheels off the ground first): `ros2 run teleop_twist_keyboard
+  teleop_twist_keyboard --ros-args -r cmd_vel:=/diff_cont/cmd_vel_unstamped -p speed:=0.1 -p turn:=0.5`;
+  VM: `rviz2 -d ~/dev_ws/src/my_bot/config/drive_test.rviz` (fixed frame odom, robot model, /scan, TF).
+  twist_mux is not installed on the Pi and its config (`use_stamped: true`) does not match diff_cont.
 
 ## How the robot actually runs (updated 2026-10-02)
 - Boot: the ONLY robot-related systemd service is `fastdds.service` (FastDDS discovery server,

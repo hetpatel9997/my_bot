@@ -1,0 +1,13 @@
+# LD06 LiDAR driver (ldlidar_stl_ros2 from ~/robot_ws/src) - used by launch/lidar.launch.py
+# Settings taken from the owner's working manual runs (bash history on the Pi).
+ldlidar_node:
+  ros__parameters:
+    product_name: LDLiDAR_LD19     # LD06 and LD19 share the same protocol; LD19 mode is what worked before
+    topic_name: scan
+    frame_id: laser_frame          # must match the link in description/lidar.xacro (no extra static TF)
+    port_name: /dev/ldlidar        # udev symlink (99-ldlidar.rules) -> ttyUSB0/1, survives replugging
+    port_baudrate: 230400
+    laser_scan_dir: true           # counter-clockwise
+    enable_angle_crop_func: false
+    angle_crop_min: 135.0
+    angle_crop_max: 225.0
