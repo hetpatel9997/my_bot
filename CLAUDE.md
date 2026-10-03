@@ -1,0 +1,93 @@
+# WeedBot — autonomous backyard weed-spraying robot
+
+Read this first in every session. It is the project memory shared between the
+VM, the Raspberry Pi, and the owner's chat sessions.
+
+## Who you are working with
+- The owner is a robotics student, not a programmer. Explain what you are doing
+  in plain language, one step at a time, and say which machine a command runs on.
+- You do the software engineering. Write complete files, not fragments. After
+  any change, say exactly how to run it and what success looks like.
+- Ask before: running `sudo`, changing Arduino firmware, deleting anything,
+  or commanding the robot to move or spray. Never auto-start motion.
+
+## Machines
+| Name | What it is | How to reach it | Role |
+|------|-----------|-----------------|------|
+| vm   | `het@het-virtual-machine`: Ubuntu 22.04 in VMware on a Mac, x86_64, ROS 2 Humble, RViz, Gazebo, VS Code | you are here when the hostname is het-virtual-machine | main development, git, VS Code |
+| pi   | `het@het-desktop`: Raspberry Pi 4, Ubuntu 22.04 arm64, ROS 2 Humble, IP 192.168.1.45 | `ssh pi` (passwordless from the VM) | the robot computer |
+| arduino | Uno, motor control via `diffdrive_arduino` + `ros_arduino_bridge` sketch | serial on the Pi | wheels + encoders |
+
+The owner works only inside the VM (the Mac just hosts VMware). VS Code runs in the VM and
+reaches the Pi through Remote-SSH using the same `Host pi` entry.
+
+Workflow: edit and build in the VM, commit to git, then on the Pi
+`cd ~/robot_ws/src/my_bot && git pull && cd ~/robot_ws && colcon build --symlink-install`.
+From the VM you may run `ssh pi "<command>"` to build, launch, or read logs on the robot.
+Keep ROS traffic on the LAN; the Pi and VM share `ROS_DOMAIN_ID=7`.
+If `ros2 topic list` in the VM cannot see Pi topics, use CycloneDDS on both:
+`export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`.
+
+## Repository
+- Package `my_bot` (ROS 2 Humble, Articulated Robotics layout): `description/` (xacro URDF),
+  `launch/`, `config/` (`my_controllers.yaml`, `nav2_params.yaml`, `mapper_params_online_async.yaml`).
+- Workspace on both machines: `~/robot_ws`, source in `~/robot_ws/src/my_bot`.
+- Build: `colcon build --symlink-install && source install/setup.bash`.
+- Prefer Python nodes (`rclpy`) for new perception/task nodes; keep ros2_control as is.
+
+## Robot hardware (as built)
+- Drive: differential drive. Two 12 V 100 RPM 1:45 encoder gearmotors (37 mm, 6 mm D-shaft)
+  on the rear, L298N driver, printed spur gears to 8 mm axles, 5-inch (127 mm) wheels.
+  Front: single printed caster (after the drivetrain rebuild; before it, two fixed wheels).
+- Gear ratio: 2:1 now (20T:40T). After the rebuild: 30T:40T = 1.33:1.
+  `enc_counts_per_rev` in diffdrive_arduino = motor counts per rev × gear ratio.
+- `wheel_radius` 0.0635 m, `wheel_separation` ≈ 0.206 m (measure after rebuild).
+- Sensors: LD06 2D LiDAR (to move to rear-top post ~30 cm), MPU6050 IMU on Pi I2C (planned,
+  fused with wheel odometry via robot_localization EKF), camera (Pi cam v2 or USB webcam,
+  front, 25–40 cm high, tilted 30–45° down, frames `camera_link` -> `camera_link_optical`).
+- Arm: 3-servo arm mounted over the front axle (not wired yet). A worm-gear motor is
+  reserved for the arm lift joint later. Spray: small 12 V pump switched by a relay.
+- Power: 12 V Li-ion pack, 5 V for Pi. Battery not monitored yet.
+- Frame: 2020/4020 aluminium extrusion, 360 × 240 × 160 mm, based on the "NXP robot platform" CAD.
+
+## Software stack
+- SLAM Toolbox for mapping, AMCL for localization, Nav2 for navigation (all working indoors).
+- Perception: YOLO instance segmentation (Ultralytics YOLO11n-seg / YOLOv8n-seg), classes
+  `weed_broadleaf` and `keep_plant`; trained on Colab, exported to NCNN/ONNX for the Pi.
+- Weed localization: calibrated camera + ground-plane ray cast (pixel -> base_footprint -> map).
+- Simulation: Gazebo (free). Isaac Sim is optional, cloud only, later.
+- Visualization from the Mac: Foxglove Studio or RViz in the VM.
+
+## Planned ROS 2 nodes (build in this order)
+camera (v4l2_camera) -> weed_detector_node -> weed_localization_node -> weed_manager_node ->
+coverage_manager_node -> mission_executor -> arm_planner_node -> precision_alignment_node ->
+spray_controller_node. TF frames: map, odom, base_link, base_footprint, laser_frame, imu_link,
+camera_link, camera_link_optical, arm_base_link ... spray_nozzle_link.
+
+## Roadmap and current status
+- Phase 1 (in progress): camera publishing + intrinsic calibration + camera in URDF/TF.
+- Phase 2: MPU6050 + robot_localization EKF (odom + IMU).
+- Phase 3: detector node on the Pi (low fps is fine).
+- Phase 4: weed localization to map frame, verified within 10 cm at 1 m.
+- Phase 5: weed_manager + NavigateToPose to a standoff pose.
+- Phase 6: coverage (boustrophedon lanes, Nav2 keepout filter, NavigateThroughPoses).
+- Phase 7–8: cloud sim / synthetic data (optional).
+- Phase 9–10: arm, spray, precision alignment, TreatWeed action.
+- Phase 11: mission executor, docking, battery, safety.
+Each phase ends with a verification test; do not move on until it passes.
+
+## Hard safety rules
+- The backyard has a swimming pool. LiDAR cannot see water. Any outdoor navigation config
+  MUST include a keepout zone around the pool with at least 1 m margin. Refuse to generate
+  outdoor coverage paths without it.
+- Never spray inside a keepout/flower-bed zone. Never enable the spray relay in simulation
+  or on the bench without the owner explicitly asking in that session.
+- Cap `max_vel_x` at 0.3 m/s and `max_vel_theta` at 1.0 rad/s in nav2_params.
+- Stop everything if a person or pet is within 2 m (to be implemented; keep the hook).
+
+## Conventions
+- Explain code changes briefly; put long explanations in comments, not in chat walls.
+- Launch files: one per subsystem (`camera.launch.py`, `imu.launch.py`, ...),
+  all included by `launch_robot.launch.py`.
+- Parameters live in `config/*.yaml`, never hard-coded.
+- When a test is needed, give the exact command and the expected output.
