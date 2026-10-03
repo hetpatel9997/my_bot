@@ -58,9 +58,9 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   Pi's discovery server): world `worlds/room.world` (5 x 4 m, table + couch boxes, robot spawns at
   the centre); `launch_sim.launch.py world:=...`, `online_async_launch.py` (SLAM), `map_saver_cli`,
   `localization_launch.py` + `navigation_launch.py` with `map:=` and `use_sim_time:=true`,
-  `coverage.launch.py use_sim_time:=true`, RViz `config/coverage_sim.rviz`. In sim nothing publishes
-  `/odom` (no EKF; diff_cont publishes `/diff_cont/odom` + the odom TF), so Nav2 gets no odometry
-  velocity there; it still navigates. A cold first Gazebo start can exceed spawn_entity's 30 s; rerun.
+  `coverage.launch.py use_sim_time:=true`, RViz `config/coverage_sim.rviz`. In sim there is no EKF:
+  diff_cont publishes `/diff_cont/odom` + the odom TF, and `scripts/odom_relay.py` (started by
+  `launch_sim.launch.py`, sim only) copies it to `/odom` for Nav2. Never run the relay on the robot. A cold first Gazebo start can exceed spawn_entity's 30 s; rerun.
 
 ## How the robot actually runs (updated 2026-10-02)
 - Boot: the ONLY robot-related systemd service is `fastdds.service` (FastDDS discovery server,

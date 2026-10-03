@@ -46,11 +46,23 @@ def generate_launch_description():
     )
 
 
+    # Sim only: no IMU/EKF in Gazebo, so copy diff_cont's odometry to /odom for Nav2.
+    # (On the real robot the robot_localization EKF publishes /odom; see imu_ekf.launch.py.)
+    odom_relay = Node(
+        package=package_name,
+        executable='odom_relay.py',
+        name='odom_relay',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+        remappings=[('odom_in', '/diff_cont/odom'), ('odom_out', '/odom')],
+    )
+
     # Launch them all!
     return LaunchDescription([
         rsp,
         gazebo,
         spawn_entity,
         diff_drive_spawner,
-        joint_broad_spawner
+        joint_broad_spawner,
+        odom_relay
     ])
