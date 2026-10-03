@@ -51,9 +51,17 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
 - Drive test (manual, nothing starts at boot). Pi terminal 1: `ros2 launch my_bot launch_robot.launch.py`
   (keep the robot still ~3 s for IMU calibration); Pi terminal 2: `ros2 launch my_bot lidar.launch.py`;
   Pi terminal 3 (owner only, wheels off the ground first): `ros2 run teleop_twist_keyboard
-  teleop_twist_keyboard --ros-args -r cmd_vel:=/diff_cont/cmd_vel_unstamped -p speed:=0.1 -p turn:=0.5`;
+  teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_keyboard -p speed:=0.1 -p turn:=0.5`;
   VM: `rviz2 -d ~/dev_ws/src/my_bot/config/drive_test.rviz` (fixed frame odom, robot model, /scan, TF).
-  twist_mux is not installed on the Pi and its config (`use_stamped: true`) does not match diff_cont.
+- Velocity path (sim AND robot): `launch/twist_mux.launch.py` (included by launch_robot and launch_sim)
+  -> `/diff_cont/cmd_vel_unstamped`. Inputs (`config/twist_mux.yaml`): Nav2 `/cmd_vel` priority 70,
+  keyboard `/cmd_vel_keyboard` 90, joystick `/cmd_vel_joy` 100, each with a 0.5 s timeout (teleop
+  overrides Nav2 only while keys are held: hold `k` to stop). Lock `/e_stop` (std_msgs/Bool,
+  priority 255, latched): `ros2 topic pub --once /e_stop std_msgs/msg/Bool "{data: true}"` blocks
+  every input until `{data: false}`; this is the hook for the person/pet 2 m stop. Never publish
+  straight to `/diff_cont/cmd_vel_unstamped` while twist_mux runs. The Pi needs
+  `ros-humble-twist-mux` (apt) or launch_robot fails. Sim test 2026-10-03: Nav2 goal 1 m SUCCEEDED;
+  keyboard override and /e_stop both stopped the robot, Nav2 resumed after release.
 - Gazebo coverage test (VM only; run `ros_local` first in EVERY terminal so the sim stays off the
   Pi's discovery server): world `worlds/room.world` (5 x 4 m, table + couch boxes, robot spawns at
   the centre); `launch_sim.launch.py world:=... gui:=false`, `online_async_launch.py` (SLAM),

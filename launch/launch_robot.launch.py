@@ -74,11 +74,20 @@ def generate_launch_description():
     )
 
 
+    # Velocity multiplexer: Nav2 /cmd_vel (low), keyboard /cmd_vel_keyboard (higher), joystick,
+    # and the /e_stop lock -> /diff_cont/cmd_vel_unstamped (config/twist_mux.yaml).
+    twist_mux = IncludeLaunchDescription(
+                PythonLaunchDescriptionSource([os.path.join(
+                    get_package_share_directory(package_name),'launch','twist_mux.launch.py'
+                )]), launch_arguments={'use_sim_time': 'false'}.items()
+    )
+
     # Launch them all!
     return LaunchDescription([
         rsp,
         delayed_controller_manager,
         delayed_diff_drive_spawner,
         delayed_joint_broad_spawner,
-        imu_ekf
+        imu_ekf,
+        twist_mux
     ])

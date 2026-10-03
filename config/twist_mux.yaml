@@ -1,19 +1,27 @@
+# twist_mux: picks ONE velocity source for diff_cont (output -> /diff_cont/cmd_vel_unstamped,
+# see launch/twist_mux.launch.py). Higher priority wins while its messages keep arriving;
+# after `timeout` seconds of silence the next source takes over.
+# twist_mux 4.3 (Humble) always uses unstamped geometry_msgs/Twist, matching diff_cont.
 twist_mux:
   ros__parameters:
-
-    use_stamped: true
-
     topics:
+      nav2:
+        topic   : cmd_vel            # Nav2's final output (after velocity_smoother)
+        timeout : 0.5
+        priority: 70
       keyboard:
-        topic   : cmd_vel_keyboard
+        topic   : cmd_vel_keyboard   # teleop_twist_keyboard, remapped; overrides Nav2 (hold 'k' to stop)
         timeout : 0.5
         priority: 90
       joystick:
-        topic   : cmd_vel_joy
+        topic   : cmd_vel_joy        # joystick.launch.py
         timeout : 0.5
         priority: 100
-      nav2:
-        topic   : cmd_vel_nav
-        timeout : 0.5
-        priority: 70
-        
+    locks:
+      e_stop:
+        # Emergency stop: publish std_msgs/Bool true on /e_stop to block ALL inputs (latched,
+        # timeout 0 = stays locked until false is published). Hook for the planned
+        # "person/pet within 2 m" stop.
+        topic   : e_stop
+        timeout : 0.0
+        priority: 255

@@ -231,7 +231,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: True
-      robot_radius: 0.22
+      robot_radius: 0.225
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -255,7 +255,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 13.0
-        inflation_radius: 0.22
+        inflation_radius: 0.30   # >= 0.25 required (robot inscribed radius 0.225); global uses 0.45
       always_send_full_costmap: True
 
 map_server:
