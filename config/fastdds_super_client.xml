@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  FastDDS SUPER_CLIENT profile (ROS 2 Humble discovery-server docs).
+  Lets ros2 CLI tools and nodes started from a terminal see ALL topics known to the
+  discovery server run by fastdds.service on the Pi (fastdds discovery -server-id 0,
+  listening on 0.0.0.0:11811). Loaded via FASTRTPS_DEFAULT_PROFILES_FILE in ~/.bashrc
+  on the Pi and the VM. Prefix below is the fixed GUID prefix for server id 0.
+-->
+<dds>
+    <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+        <participant profile_name="super_client_profile" is_default_profile="true">
+            <rtps>
+                <builtin>
+                    <discovery_config>
+                        <discoveryProtocol>SUPER_CLIENT</discoveryProtocol>
+                        <discoveryServersList>
+                            <RemoteServer prefix="44.53.00.5f.45.50.52.4f.53.49.4d.41">
+                                <metatrafficUnicastLocatorList>
+                                    <locator>
+                                        <udpv4>
+                                            <address>192.168.1.45</address>
+                                            <port>11811</port>
+                                        </udpv4>
+                                    </locator>
+                                </metatrafficUnicastLocatorList>
+                            </RemoteServer>
+                        </discoveryServersList>
+                    </discovery_config>
+                </builtin>
+            </rtps>
+        </participant>
+    </profiles>
+</dds>
