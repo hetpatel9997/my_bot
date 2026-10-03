@@ -16,7 +16,7 @@ VM, the Raspberry Pi, and the owner's chat sessions.
 |------|-----------|-----------------|------|
 | vm   | `het@het-virtual-machine`: Ubuntu 22.04 in VMware on a Mac, x86_64, ROS 2 Humble, RViz, Gazebo, VS Code | you are here when the hostname is het-virtual-machine | main development, git, VS Code |
 | pi   | `het@het-desktop`: Raspberry Pi 4, Ubuntu 22.04 arm64, ROS 2 Humble, IP 192.168.1.45 | `ssh pi` (passwordless from the VM) | the robot computer |
-| arduino | Uno, motor control via `diffdrive_arduino` + `ros_arduino_bridge` sketch | serial on the Pi | wheels + encoders |
+| arduino | Uno; at boot read by `arduino_odom` (`~/ros2_ws`) as `/dev/arduino_odom` @ 115200 (see "How the robot actually runs") | USB serial on the Pi | wheels + encoders |
 
 The owner works only inside the VM (the Mac just hosts VMware). VS Code runs in the VM and
 reaches the Pi through Remote-SSH using the same `Host pi` entry.
@@ -24,23 +24,62 @@ reaches the Pi through Remote-SSH using the same `Host pi` entry.
 Workflow: edit and build in the VM, commit to git, then on the Pi
 `cd ~/robot_ws/src/my_bot && git pull && cd ~/robot_ws && colcon build --symlink-install`.
 From the VM you may run `ssh pi "<command>"` to build, launch, or read logs on the robot.
-Keep ROS traffic on the LAN; the Pi and VM share `ROS_DOMAIN_ID=7`.
-If `ros2 topic list` in the VM cannot see Pi topics, use CycloneDDS on both:
-`export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`.
+Keep ROS traffic on the LAN. Pi and VM both use `ROS_DOMAIN_ID=0`, FastDDS
+(`rmw_fastrtps_cpp`) and the FastDDS Discovery Server on the Pi (`192.168.1.45:11811`),
+all set in each machine's `~/.bashrc`. CycloneDDS is NOT in use (old XMLs exist, unused).
 
 ## Repository
 - Package `my_bot` (ROS 2 Humble, Articulated Robotics layout): `description/` (xacro URDF),
   `launch/`, `config/` (`my_controllers.yaml`, `nav2_params.yaml`, `mapper_params_online_async.yaml`).
 - Workspace: VM `~/dev_ws` (source in `~/dev_ws/src/my_bot`); Pi `~/robot_ws` (source in `~/robot_ws/src/my_bot`).
 - Build: `colcon build --symlink-install && source install/setup.bash`.
-- Prefer Python nodes (`rclpy`) for new perception/task nodes; keep ros2_control as is.
+- Prefer Python nodes (`rclpy`) for new perception/task nodes.
+- `my_bot` contains a ros2_control / `diffdrive_arduino` setup (`ros2_control.xacro`,
+  `my_controllers.yaml`, `launch_robot.launch.py`), but it is NOT what runs on the robot at boot.
+  The Phase 2 EKF config (`ekf.yaml` reads `/diff_cont/odom`) assumes that stack and must be
+  adapted to `arduino_odom` (pose-only `/odom`, own odom->base_link TF) before testing.
+
+## How the robot actually runs (verified 2026-10-02)
+- Boot: systemd services (all `User=het`, sourcing `/opt/ros/humble` + `~/ros2_ws/install`):
+  `fastdds.service` (discovery server, id 0), `arduino_odom.service` (`arduino_odom_node`),
+  `arduino_tf_broadcaster.service` (`odom_tf_broadcaster.py`), `robot_autostart.service`
+  (after 60 s runs `~/start_robot_full.sh`: arduino_odom_node, odom_tf_broadcaster, LD06
+  on `/dev/ttyUSB1`, slam_toolbox, map save to `~/ros2_ws/maps/my_map`, optional Nav2;
+  logs in `~/ros_logs`). Also enabled: `ldlidar.service`, `slam_toolbox.service`.
+  `robot-bringup.service` is an unfilled template (disabled). No crontab, no rc.local.
+  Nothing at boot drives the motors (`cmd_vel_bridge.py` exists but is not started).
+- `arduino_odom_node`: reads `x=.. y=.. theta_deg=..` lines from `/dev/arduino_odom`
+  (115200, both hard-coded; the service's `-p port/baud/alpha` are ignored), low-pass filter
+  alpha 0.6, publishes `/odom` (nav_msgs/Odometry, odom -> base_link, pose only, no twist or
+  covariance). `odom_tf_broadcaster`: subscribes `odom`, broadcasts TF odom -> base_link.
+- Gotcha: systemd services do not get the `.bashrc` DDS settings (it returns early for
+  non-interactive shells), so they use plain multicast discovery on domain 0, while SSH
+  terminals and the VM are Discovery Server clients. The two groups cannot see each other.
+  Also, Discovery Server clients only learn about topics they themselves use, so
+  `ros2 topic list` from an SSH terminal shows only /rosout and /parameter_events. Seeing
+  everything needs a SUPER_CLIENT profile (`FASTRTPS_DEFAULT_PROFILES_FILE`); not set up yet.
+
+## Protected setup — never modify without asking the owner first
+Read freely; ask the owner before editing, disabling, restarting, or deleting any of these:
+- Pi systemd units in `/etc/systemd/system/`: `fastdds.service`, `arduino_odom.service`,
+  `arduino_tf_broadcaster.service`, `robot_autostart.service`, `ldlidar.service`,
+  `slam_toolbox.service`, `robot-bringup.service`.
+- Pi `~/start_robot_full.sh` (and the other `~/start_*.sh` / `~/run_slam_pi.sh` scripts).
+- Pi `~/ros2_ws` (packages `arduino_odom`, `robot_tf_odom`, `mpu6050_driver`, `ldlidar_stl_ros2`).
+- DDS / ROS environment: `~/.bashrc` on Pi and VM (ROS_DOMAIN_ID, RMW_IMPLEMENTATION,
+  ROS_DISCOVERY_SERVER, ROS_IP, aliases); `~/cyclonedds.xml`, `~/cyclonedds_pi.xml` (Pi),
+  `~/cyclonedds.xml`, `~/cyclonedds_vm.xml` (VM). Any new FastDDS profile XML counts too.
+- Pi udev rules: `/etc/udev/rules.d/99-arduino-odom.rules`, `99-ldlidar.rules`,
+  `99-usb-devices.rules`, `99-usb-serial.rules` (`/dev/arduino_odom`, `/dev/ldlidar`, `/dev/ld06`).
+- Arduino firmware (already covered by "Ask before" above).
 
 ## Robot hardware (as built)
 - Drive: differential drive. Two 12 V 100 RPM 1:45 encoder gearmotors (37 mm, 6 mm D-shaft)
   on the rear, L298N driver, printed spur gears to 8 mm axles, 5-inch (127 mm) wheels.
   Front: single printed caster (after the drivetrain rebuild; before it, two fixed wheels).
 - Gear ratio: 2:1 now (20T:40T). After the rebuild: 30T:40T = 1.33:1.
-  `enc_counts_per_rev` in diffdrive_arduino = motor counts per rev × gear ratio.
+  (Only if the ros2_control stack is used: `enc_counts_per_rev` in diffdrive_arduino =
+  motor counts per rev × gear ratio.)
 - `wheel_radius` 0.0635 m, `wheel_separation` ≈ 0.206 m (measure after rebuild).
 - Sensors: LD06 2D LiDAR (to move to rear-top post ~30 cm), MPU6050 IMU on Pi I2C bus 1 at 0x68
   (`scripts/mpu6050_node.py` -> `/imu/data_raw`; yaw rate fused with wheel odometry by the
