@@ -71,8 +71,10 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
 - `ros2 run my_bot sim_odom_check.py` (sim only, refuses without /clock): drives 1 m and 360 deg,
   stopping on Gazebo's true pose (`/ground_truth/odom`, p3d plugin in sim-only
   `description/sim_ground_truth.xacro`), and compares `/odom` (EKF) and `/diff_cont/odom` with it.
-  Results 2026-10-03, wheels only: mu 1.0 -> <1 mm / 0.1 deg error; mu 0.03 -> +6 cm / -12 deg;
-  mu 0.01 -> +29 cm / +30 deg.
+  Results 2026-10-03 (error vs ground truth, after 1 m forward / after 360 deg turn):
+  mu 1.0:  EKF -1.7 cm, -0.5 deg / -1.2 deg;  wheels -1.7 cm, 0.0 deg / -0.9 deg.
+  mu 0.03: EKF -11.6 cm / -0.4 deg;  wheels -11.6 cm / +14.2 deg. The EKF fixes HEADING under slip
+  (gyro yaw rate); it cannot fix DISTANCE (only wheel speed is fused), and neither sees sideways slide.
 - VM performance (2 cores, 3.8 GB, VMware SVGA3D GPU; driver crash traces in the desktop log):
   real-time factor 0.97-0.99 headless, 0.88 headless + SLAM, 0.37 with the Gazebo window.
   Use `gui:=false`; never set LIBGL_ALWAYS_SOFTWARE (forces llvmpipe). Further options: give the
