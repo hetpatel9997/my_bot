@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- MPU6050 position measured from the point between the drive wheels, in metres.
+       Board flat, printed X arrow pointing forward, Y pointing left.
+       If it is rotated, change the rpy here OR the axis_signs in imu_ekf.launch.py, not both. -->
+  <xacro:property name="imu_x" value="0.05"/>
+  <xacro:property name="imu_y" value="0.00"/>
+  <xacro:property name="imu_z" value="0.10"/>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="${imu_x} ${imu_y} ${imu_z}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="imu_link">
+    <visual>
+      <geometry><box size="0.02 0.016 0.003"/></geometry>
+      <material name="blue"/>
+    </visual>
+  </link>
+
+</robot>

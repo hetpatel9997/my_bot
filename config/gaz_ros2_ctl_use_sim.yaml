@@ -1,3 +1,9 @@
 controller_manager:
   ros__parameters:
     use_sim_time: true
+
+# No IMU/EKF in simulation, so in Gazebo the controller publishes odom->base_link itself
+# (on the real robot my_controllers.yaml sets this false and the EKF does it).
+diff_cont:
+  ros__parameters:
+    enable_odom_tf: true

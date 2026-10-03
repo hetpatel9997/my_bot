@@ -1,0 +1,10 @@
+coverage_planner:
+  ros__parameters:
+    lane_spacing: 0.40        # metres between lanes; set to the camera swath width later
+    robot_radius: 0.18        # half of the robot's widest dimension (355 x 249 mm frame -> 0.18)
+    margin: 0.10              # extra clearance from walls
+    coverage_radius: 0.20     # half the lane spacing, so adjacent lanes just touch
+    min_segment_len: 0.30     # ignore lane pieces shorter than this
+    map_topic: /map
+    global_frame: map
+    base_frame: base_link

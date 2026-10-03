@@ -57,6 +57,15 @@ def generate_launch_description():
         arguments=["joint_broad"]
     )
 
+    # 2. IMU driver + robot_localization EKF. diff_cont has enable_odom_tf: false,
+    #    so the EKF is what publishes odom->base_link. If the IMU is missing the
+    #    EKF still runs on wheel odometry alone.
+    imu_ekf = IncludeLaunchDescription(
+                PythonLaunchDescriptionSource([os.path.join(
+                    get_package_share_directory(package_name),'launch','imu_ekf.launch.py'
+                )])
+    )
+
     delayed_joint_broad_spawner = RegisterEventHandler(
         event_handler=OnProcessStart(
             target_action=controller_manager,
@@ -70,5 +79,6 @@ def generate_launch_description():
         rsp,
         delayed_controller_manager,
         delayed_diff_drive_spawner,
-        delayed_joint_broad_spawner
+        delayed_joint_broad_spawner,
+        imu_ekf
     ])

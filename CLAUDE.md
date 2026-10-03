@@ -31,7 +31,7 @@ If `ros2 topic list` in the VM cannot see Pi topics, use CycloneDDS on both:
 ## Repository
 - Package `my_bot` (ROS 2 Humble, Articulated Robotics layout): `description/` (xacro URDF),
   `launch/`, `config/` (`my_controllers.yaml`, `nav2_params.yaml`, `mapper_params_online_async.yaml`).
-- Workspace on both machines: `~/robot_ws`, source in `~/robot_ws/src/my_bot`.
+- Workspace: VM `~/dev_ws` (source in `~/dev_ws/src/my_bot`); Pi `~/robot_ws` (source in `~/robot_ws/src/my_bot`).
 - Build: `colcon build --symlink-install && source install/setup.bash`.
 - Prefer Python nodes (`rclpy`) for new perception/task nodes; keep ros2_control as is.
 
@@ -42,8 +42,10 @@ If `ros2 topic list` in the VM cannot see Pi topics, use CycloneDDS on both:
 - Gear ratio: 2:1 now (20T:40T). After the rebuild: 30T:40T = 1.33:1.
   `enc_counts_per_rev` in diffdrive_arduino = motor counts per rev × gear ratio.
 - `wheel_radius` 0.0635 m, `wheel_separation` ≈ 0.206 m (measure after rebuild).
-- Sensors: LD06 2D LiDAR (to move to rear-top post ~30 cm), MPU6050 IMU on Pi I2C (planned,
-  fused with wheel odometry via robot_localization EKF), camera (Pi cam v2 or USB webcam,
+- Sensors: LD06 2D LiDAR (to move to rear-top post ~30 cm), MPU6050 IMU on Pi I2C bus 1 at 0x68
+  (`scripts/mpu6050_node.py` -> `/imu/data_raw`; yaw rate fused with wheel odometry by the
+  robot_localization EKF, `config/ekf.yaml`, which publishes `/odom` and odom->base_link;
+  diff_cont has `enable_odom_tf: false` on the real robot, true in Gazebo), camera (Pi cam v2 or USB webcam,
   front, 25–40 cm high, tilted 30–45° down, frames `camera_link` -> `camera_link_optical`).
 - Arm: 3-servo arm mounted over the front axle (not wired yet). A worm-gear motor is
   reserved for the arm lift joint later. Spray: small 12 V pump switched by a relay.
@@ -59,18 +61,22 @@ If `ros2 topic list` in the VM cannot see Pi topics, use CycloneDDS on both:
 - Visualization from the Mac: Foxglove Studio or RViz in the VM.
 
 ## Planned ROS 2 nodes (build in this order)
-camera (v4l2_camera) -> weed_detector_node -> weed_localization_node -> weed_manager_node ->
-coverage_manager_node -> mission_executor -> arm_planner_node -> precision_alignment_node ->
+mpu6050_node + ekf_node -> coverage_planner_node -> camera (v4l2_camera) -> weed_detector_node ->
+weed_localization_node -> weed_manager_node -> mission_executor -> arm_planner_node -> precision_alignment_node ->
 spray_controller_node. TF frames: map, odom, base_link, base_footprint, laser_frame, imu_link,
 camera_link, camera_link_optical, arm_base_link ... spray_nozzle_link.
 
 ## Roadmap and current status
-- Phase 1 (in progress): camera publishing + intrinsic calibration + camera in URDF/TF.
-- Phase 2: MPU6050 + robot_localization EKF (odom + IMU).
-- Phase 3: detector node on the Pi (low fps is fine).
-- Phase 4: weed localization to map frame, verified within 10 cm at 1 m.
-- Phase 5: weed_manager + NavigateToPose to a standoff pose.
-- Phase 6: coverage (boustrophedon lanes, Nav2 keepout filter, NavigateThroughPoses).
+- Phase 1 (POSTPONED, resume after Phase 3): camera publishing + intrinsic calibration +
+  camera in URDF/TF.
+- Phase 2 (in progress): MPU6050 + robot_localization EKF (odom + IMU). Files: mpu6050_node.py,
+  ekf.yaml, imu.xacro, imu_ekf.launch.py.
+- Phase 3: coverage (boustrophedon lanes via coverage_planner_node, NavigateToPose per lane end,
+  /coverage/plan|start|stop). INDOOR ONLY for now: the planner reads /map and does not yet honour
+  a keepout mask, so outdoor use needs the Nav2 keepout filter (pool + 1 m) wired in first.
+- Phase 4: detector node on the Pi (low fps is fine). Needs Phase 1 camera.
+- Phase 5: weed localization to map frame, verified within 10 cm at 1 m.
+- Phase 6: weed_manager + NavigateToPose to a standoff pose.
 - Phase 7–8: cloud sim / synthetic data (optional).
 - Phase 9–10: arm, spray, precision alignment, TreatWeed action.
 - Phase 11: mission executor, docking, battery, safety.
