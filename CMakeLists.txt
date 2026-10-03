@@ -41,7 +41,7 @@ install(PROGRAMS
   scripts/lawnmower.py
   scripts/mpu6050_node.py
   scripts/coverage_planner_node.py
-  scripts/odom_relay.py
+  scripts/sim_odom_check.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

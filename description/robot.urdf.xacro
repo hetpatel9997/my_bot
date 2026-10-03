@@ -3,6 +3,9 @@
 
     <xacro:arg name="use_ros2_control" default="true"/>
     <xacro:arg name="sim_mode" default="false"/>
+    <!-- Gazebo wheel friction (sim only; the real robot ignores <gazebo> tags). 1.0 = normal grip,
+         e.g. 0.1 = slippery floor to show the EKF keeping the heading with the IMU. -->
+    <xacro:arg name="wheel_mu" default="1.0"/>
 
     <xacro:include filename="robot_core.xacro" />
 
@@ -15,6 +18,9 @@
     </xacro:unless>
     <xacro:include filename="lidar.xacro"/>
     <xacro:include filename="imu.xacro"/>
+    <xacro:if value="$(arg sim_mode)">
+        <xacro:include filename="imu_sim.xacro"/>
+    </xacro:if>
     <xacro:include filename="camera.xacro"/>
     
 </robot>

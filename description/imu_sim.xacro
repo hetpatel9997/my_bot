@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<!-- SIMULATION ONLY (included from robot.urdf.xacro when sim_mode is true).
+     Gazebo IMU on imu_link that stands in for the real MPU6050 + mpu6050_node: same topic
+     (/imu/data_raw), same frame (imu_link), same 50 Hz rate, so the same EKF (config/ekf.yaml)
+     runs in sim and on the robot. Noise roughly like an MPU6050 after startup bias calibration:
+     gyro white noise 0.002 rad/s plus a small random constant bias (stddev 0.0005 rad/s, about
+     1.7 deg/min of heading drift if uncorrected); accelerometer 0.02 m/s^2. Gazebo also fills
+     in orientation, which the real node does not; the EKF only fuses the yaw rate anyway. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="imu_noise" params="stddev bias_stddev">
+    <noise type="gaussian">
+      <mean>0.0</mean>
+      <stddev>${stddev}</stddev>
+      <bias_mean>0.0</bias_mean>
+      <bias_stddev>${bias_stddev}</bias_stddev>
+    </noise>
+  </xacro:macro>
+
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>50</update_rate>
+      <visualize>false</visualize>
+      <imu>
+        <angular_velocity>
+          <x><xacro:imu_noise stddev="0.002" bias_stddev="0.0005"/></x>
+          <y><xacro:imu_noise stddev="0.002" bias_stddev="0.0005"/></y>
+          <z><xacro:imu_noise stddev="0.002" bias_stddev="0.0005"/></z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x><xacro:imu_noise stddev="0.02" bias_stddev="0.01"/></x>
+          <y><xacro:imu_noise stddev="0.02" bias_stddev="0.01"/></y>
+          <z><xacro:imu_noise stddev="0.02" bias_stddev="0.01"/></z>
+        </linear_acceleration>
+      </imu>
+      <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+        <ros>
+          <remapping>~/out:=/imu/data_raw</remapping>
+        </ros>
+        <frame_name>imu_link</frame_name>
+        <initial_orientation_as_reference>false</initial_orientation_as_reference>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+</robot>

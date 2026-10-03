@@ -56,12 +56,27 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   twist_mux is not installed on the Pi and its config (`use_stamped: true`) does not match diff_cont.
 - Gazebo coverage test (VM only; run `ros_local` first in EVERY terminal so the sim stays off the
   Pi's discovery server): world `worlds/room.world` (5 x 4 m, table + couch boxes, robot spawns at
-  the centre); `launch_sim.launch.py world:=...`, `online_async_launch.py` (SLAM), `map_saver_cli`,
-  `localization_launch.py` + `navigation_launch.py` with `map:=` and `use_sim_time:=true`,
-  `coverage.launch.py use_sim_time:=true`, RViz `config/coverage_sim.rviz`. In sim there is no EKF:
-  diff_cont publishes `/diff_cont/odom` + the odom TF, and `scripts/odom_relay.py` (started by
-  `launch_sim.launch.py`, sim only) copies it to `/odom` for Nav2. Never run the relay on the robot. A cold first Gazebo start can exceed spawn_entity's 30 s; rerun.
-
+  the centre); `launch_sim.launch.py world:=... gui:=false`, `online_async_launch.py` (SLAM),
+  `map_saver_cli`, `localization_launch.py` + `navigation_launch.py` with `map:=` and
+  `use_sim_time:=true`, `coverage.launch.py use_sim_time:=true`, RViz `config/coverage_sim.rviz`.
+  A cold first Gazebo start can exceed spawn_entity's 30 s; rerun.
+- Sim and real share ONE odometry pipeline: `imu_ekf.launch.py` (robot_localization EKF, `ekf.yaml`)
+  fuses `/diff_cont/odom` + `/imu/data_raw` and publishes `/odom` + odom->base_link; diff_cont's own
+  odom TF is off in both. In Gazebo, `description/imu_sim.xacro` (included only when sim_mode) adds
+  an IMU plugin on `imu_link` -> `/imu/data_raw` @ 50 Hz (gyro noise 0.002 rad/s + small random
+  bias), and launch_sim passes `use_mpu6050:=false use_sim_time:=true`. The VM needs
+  `ros-humble-robot-localization` (apt) or launch_sim will not start.
+- `launch_sim.launch.py` args: `world`, `gui` (default true; false = no Gazebo window),
+  `wheel_mu` (Gazebo wheel friction, default 1.0; 0.03 shows wheel slip, 0.01 heavy slip).
+- `ros2 run my_bot sim_odom_check.py` (sim only, refuses without /clock): drives 1 m and 360 deg,
+  stopping on Gazebo's true pose, and compares `/odom` (EKF) and `/diff_cont/odom` with the truth.
+  Results 2026-10-03, wheels only: mu 1.0 -> <1 mm / 0.1 deg error; mu 0.03 -> +6 cm / -12 deg;
+  mu 0.01 -> +29 cm / +30 deg.
+- VM performance (2 cores, 3.8 GB, VMware SVGA3D GPU; driver crash traces in the desktop log):
+  real-time factor 0.97-0.99 headless, 0.88 headless + SLAM, 0.37 with the Gazebo window.
+  Use `gui:=false`; never set LIBGL_ALWAYS_SOFTWARE (forces llvmpipe). Further options: give the
+  VM 4 cores / 6-8 GB, disable the sim camera (640x480 @ 10 Hz renders even headless) until Phase 1,
+  500 Hz physics in the world, lower RViz Frame Rate.
 ## How the robot actually runs (updated 2026-10-02)
 - Boot: the ONLY robot-related systemd service is `fastdds.service` (FastDDS discovery server,
   `fastdds discovery --server-id 0`, listening on 0.0.0.0:11811). Nothing ROS starts at boot and
