@@ -20,6 +20,7 @@
     <xacro:include filename="imu.xacro"/>
     <xacro:if value="$(arg sim_mode)">
         <xacro:include filename="imu_sim.xacro"/>
+        <xacro:include filename="sim_ground_truth.xacro"/>
     </xacro:if>
     <xacro:include filename="camera.xacro"/>
     

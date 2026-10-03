@@ -4,7 +4,8 @@ sim_odom_check.py  -  SIMULATION ONLY drive test: compares odometry with Gazebo'
 
 Drives the simulated robot 1 m forward (0.2 m/s), stops, then turns 360 deg in place (0.5 rad/s),
 (both measured on Gazebo's true pose, so the robot really travels 1 m and really turns 360 deg)
-and reports, for each phase, the true motion (from `gz model -m my_bot -p`) against
+and reports, for each phase, the true motion (/ground_truth/odom, Gazebo p3d plugin at 50 Hz,
+description/sim_ground_truth.xacro) against
   /odom            (robot_localization EKF: wheels + IMU)    and
   /diff_cont/odom  (wheels only).
 Heading is accumulated (unwrapped), so a full 360 deg turn is measured as such.
@@ -17,9 +18,7 @@ while the EKF heading stays close to Gazebo, because the EKF trusts the gyro yaw
 REFUSES to run unless /clock exists (i.e. simulation). Never use on the real robot.
 """
 import math
-import subprocess
 import sys
-import threading
 import time
 
 import rclpy
@@ -35,12 +34,6 @@ def yaw_of(q):
 
 def wrap(a):
     return math.atan2(math.sin(a), math.cos(a))
-
-
-def gz_pose():
-    out = subprocess.run(['gz', 'model', '-m', 'my_bot', '-p'],
-                         capture_output=True, text=True, timeout=10).stdout.split()
-    return float(out[0]), float(out[1]), float(out[5])
 
 
 class Track:
@@ -63,24 +56,11 @@ class Check(Node):
         super().__init__('sim_odom_check', parameter_overrides=[Parameter('use_sim_time', value=True)])
         self.pub = self.create_publisher(Twist, '/diff_cont/cmd_vel_unstamped', 10)
         self.tracks = {'gazebo': Track(), 'ekf /odom': Track(), 'wheels /diff_cont/odom': Track()}
-        for topic, name in (('/odom', 'ekf /odom'), ('/diff_cont/odom', 'wheels /diff_cont/odom')):
-            self.create_subscription(Odometry, topic, lambda m, n=name: self._odom(n, m), 20)
-        # `gz model -p` takes a few hundred ms, so poll it in a background thread; otherwise the
-        # cmd_vel stream stalls and diff_cont's 0.5 s command timeout stops the wheels.
-        self.lock = threading.Lock()
-        self.stop = False
-        threading.Thread(target=self._gz_loop, daemon=True).start()
-
-    def _gz_loop(self):
-        while not self.stop:
-            try:
-                pose = gz_pose()
-            except Exception:
-                time.sleep(0.2)
-                continue
-            with self.lock:
-                self.tracks['gazebo'].update(*pose)
-            time.sleep(0.1)
+        for topic, name in (('/ground_truth/odom', 'gazebo'), ('/odom', 'ekf /odom'),
+                            ('/diff_cont/odom', 'wheels /diff_cont/odom')):
+            self.create_subscription(Odometry, topic, lambda m, n=name: self._odom(n, m), 50)
+        # All three sources arrive as ROS topics at 10-50 Hz, so headings unwrap reliably (an
+        # earlier version polled `gz model -p`, whose multi-second stalls lost whole turns).
 
     def _odom(self, name, m):
         p = m.pose.pose
@@ -107,9 +87,8 @@ class Check(Node):
         end = self.sim_now() + timeout
         next_pub = 0.0
         while self.sim_now() < end:
-            with self.lock:
-                if done(self.tracks['gazebo']):
-                    return True
+            if done(self.tracks['gazebo']):
+                return True
             if time.time() >= next_pub:
                 self.pub.publish(twist)
                 next_pub = time.time() + 0.05
@@ -118,9 +97,7 @@ class Check(Node):
         return False
 
     def snaps(self):
-        time.sleep(0.6)                                    # let the gz thread catch up
-        with self.lock:
-            return {k: t.snap() for k, t in self.tracks.items()}
+        return {k: t.snap() for k, t in self.tracks.items()}
 
 
 def report(title, a, b):
@@ -159,7 +136,6 @@ def main():
     n.run_until(lambda g: g.acc - a0 >= 2 * math.pi, turn, 40.0)
     n.run_for(2.0, still); s2 = n.snaps()
     report('TURN 360 deg at 0.5 rad/s (stopped on true heading)', s1, s2)
-    n.stop = True
     n.destroy_node(); rclpy.shutdown()
 
 

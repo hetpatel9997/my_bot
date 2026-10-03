@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!-- SIMULATION ONLY (included from robot.urdf.xacro when sim_mode is true).
+     Publishes Gazebo's exact pose of base_link as nav_msgs/Odometry on /ground_truth/odom
+     (frame "world", 50 Hz, no noise). Used by scripts/sim_odom_check.py to judge odometry.
+     Nothing in the navigation stack uses it. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <gazebo>
+    <plugin name="ground_truth" filename="libgazebo_ros_p3d.so">
+      <ros>
+        <remapping>odom:=/ground_truth/odom</remapping>
+      </ros>
+      <body_name>base_link</body_name>
+      <frame_name>world</frame_name>
+      <update_rate>50</update_rate>
+      <gaussian_noise>0.0</gaussian_noise>
+    </plugin>
+  </gazebo>
+</robot>

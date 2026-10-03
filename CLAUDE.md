@@ -69,7 +69,8 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
 - `launch_sim.launch.py` args: `world`, `gui` (default true; false = no Gazebo window),
   `wheel_mu` (Gazebo wheel friction, default 1.0; 0.03 shows wheel slip, 0.01 heavy slip).
 - `ros2 run my_bot sim_odom_check.py` (sim only, refuses without /clock): drives 1 m and 360 deg,
-  stopping on Gazebo's true pose, and compares `/odom` (EKF) and `/diff_cont/odom` with the truth.
+  stopping on Gazebo's true pose (`/ground_truth/odom`, p3d plugin in sim-only
+  `description/sim_ground_truth.xacro`), and compares `/odom` (EKF) and `/diff_cont/odom` with it.
   Results 2026-10-03, wheels only: mu 1.0 -> <1 mm / 0.1 deg error; mu 0.03 -> +6 cm / -12 deg;
   mu 0.01 -> +29 cm / +30 deg.
 - VM performance (2 cores, 3.8 GB, VMware SVGA3D GPU; driver crash traces in the desktop log):
