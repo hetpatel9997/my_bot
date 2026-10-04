@@ -839,8 +839,21 @@ class CoveragePlanner(Node):
         target = 0
         while not self.stop_flag.is_set():
             status = self._follow(approach + self.path[target:])
-            if status == GoalStatus.STATUS_SUCCEEDED or self.stop_flag.is_set():
+            if self.stop_flag.is_set():
                 break
+            if status == GoalStatus.STATUS_SUCCEEDED:
+                # Nav2's goal checker only looks at the LAST pose; the coverage path can pass
+                # close to its own end early on (e.g. on the perimeter lap), so "succeeded" may be
+                # premature. Only accept it if the robot really is near the end of the path.
+                # search only just ahead of the tracked progress (searching the whole rest of the
+                # path would match the end point itself when the robot is near it)
+                here = self._nearest_index(self.progress, 80)
+                if here >= len(self.path) - int(1.0 / step):
+                    break
+                self.get_logger().warn(f'Controller reported the goal reached at {self._xy(here)}, '
+                                       f'but {len(self.path) - here} poses remain; continuing')
+                target, approach, self.progress = here, [], here
+                continue
             self.aborts += 1
             here = self._nearest_index(self.progress, 100)
             # Blocked (a person, a moved chair...): wait for the way to clear, then let Nav2 plan
@@ -859,12 +872,24 @@ class CoveragePlanner(Node):
             self.get_logger().warn(what)
             # If Nav2 cannot plan to the target, try further along instead of sending the path
             # blindly (the controller would only abort again straight away).
+            # At most 2 m further per incident: if Nav2 still cannot plan (robot boxed in), wait
+            # and try again from where it is; after 3 such rounds give up with a report instead
+            # of skipping most of the path.
             approach = None
-            while target < len(self.path) - 1 and not self.stop_flag.is_set():
-                approach = self.plan_between(None, self.path[target])
-                if approach is not None:
+            limit = min(len(self.path) - 1, target + int(2.0 / step))
+            for round_ in range(3):
+                t = target
+                while t <= limit and not self.stop_flag.is_set():
+                    approach = self.plan_between(None, self.path[t])
+                    if approach is not None:
+                        target = t
+                        break
+                    t += int(0.5 / step)
+                if approach is not None or self.stop_flag.is_set():
                     break
-                target += int(0.5 / step)
+                self.get_logger().warn(f'Cannot plan onto the path near {self._xy(target)} '
+                                       f'(round {round_ + 1}/3); waiting {wait_s:.0f} s')
+                self._sleep(wait_s)
             if target > here + int(0.3 / step):
                 skipped.append((here, min(target, len(self.path) - 1)))
             if approach is None:
@@ -955,7 +980,8 @@ def main():
     finally:
         node.stop_flag.set()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():                 # Ctrl+C may already have shut the context down
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

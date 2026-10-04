@@ -182,14 +182,14 @@ camera_link, camera_link_optical, arm_base_link ... spray_nozzle_link.
   Blocked path: waits blocked_wait (5 s), re-plans around if there is room, else skips 1 m into
   a revisit queue retried at the end; the final report (log + latched `/coverage/report`) lists
   anything still skipped with its map location. Needs python3-scipy (apt) on the Pi.
-  Obstacle test 2026-10-04 (room world, medium): person standing on the path -> robot stopped
-  0.06 m short, waited/re-planned, piece queued; person crossing from the side came within 0.01 m
-  (front-only stop band); 88% covered. KNOWN ISSUE: 8 of 13 aborts were false stops with nobody
-  there, from RPP's "collision ahead" check near walls (46 warnings); revisits of wall-side pieces
-  fail the same way (1 of 6 revisited). Do NOT disable RPP collision detection: tested
-  2026-10-04, it is the only side/corner protection - a person crossing from the side hit the
-  robot (gap -0.20 m), the sim robot was shoved and got stuck, coverage fell to 38%. Fix the
-  false stops by tuning it (shorter look-ahead) or by more wall clearance instead.
+  Obstacle tests 2026-10-04 (room world, medium, RPP collision look-ahead 0.4 s; was 0.8):
+  89% covered, 7 aborts of which 5 false stops beside walls (was 8 with 0.8 s; "collision ahead"
+  warnings 46 -> 7). Standing person stepping in 0.20 m ahead of the bumper at 0.19 m/s: robot
+  stopped, but ~14 cm after detection -> 4 cm contact. The 0.10 m stop band is too short for
+  someone stepping in close at full speed (the slow corridor normally brings the speed to 40%
+  first, stopping distance ~6 cm). OPEN DECISION: deeper stop band vs lower top speed.
+  Do NOT disable RPP collision detection: tested, it is the only side/corner protection (a person
+  crossing from the side hit the robot, gap -0.20 m; coverage fell to 38%).
 - Phase 4: detector node on the Pi (low fps is fine). Needs Phase 1 camera.
 - Phase 5: weed localization to map frame, verified within 10 cm at 1 m.
 - Phase 6: weed_manager + NavigateToPose to a standoff pose.
