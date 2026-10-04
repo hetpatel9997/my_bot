@@ -198,6 +198,18 @@ camera_link, camera_link_optical, arm_base_link ... spray_nozzle_link.
 - Phase 11: mission executor, docking, battery, safety.
 Each phase ends with a verification test; do not move on until it passes.
 
+### Weed track W1-W5 (added 2026-10-04): simulation first, Pi hardware-in-the-loop check per milestone
+Each milestone: works in Gazebo (headless test, own ROS domain, cleaned up), then a
+hardware-in-the-loop check with the robot-side nodes on the Pi. Safety rules above still apply
+(no spraying in sim or on the bench without the owner explicitly asking in that session).
+- W1 weed memory foundation: sim weeds, fake detector (true positions + camera FOV, noise,
+  misses, false alarms), SQLite weed database (positions, sightings, photo crops, status,
+  treatment history), weed_manager merging repeat sightings, RViz markers.
+- W2 web dashboard (weed map, photos, status, run history).
+- W3 treat + verify loop in sim (drive to weed, treat, re-check later: verified dead / survived).
+- W4 weather-aware spraying (no spraying in rain/wind; plan around the forecast).
+- W5 self-improving detector pipeline (collect crops, label, retrain, evaluate, deploy).
+
 ### Drive calibration: PENDING until after the drivetrain rebuild (noted 2026-10-02)
 Hardware is on the bench, not in the chassis; rebuild = caster in front, 30T:40T gears. Open items:
 - (a) diff_cont odom showed 0.227 m/s for a 0.1 m/s teleop command on the bench. Check
@@ -253,6 +265,19 @@ Hardware is on the bench, not in the chassis; rebuild = caster in front, 30T:40T
   no acceleration limit (fastest stop), cmd_vel_timeout 0.25 s. Re-measure on the real robot.
 - Stop everything if a person or pet is within 2 m (to be implemented on top of /safety_state;
   the current zones only cover the robot's immediate surroundings).
+
+## CAD rules (FreeCAD via the freecad MCP server, FreeCAD runs on the owner's Mac)
+- Never overwrite the owner's file. Always save as a NEW version next to it, e.g.
+  "project 101.FCStd" -> "project 101 v2.FCStd" (next free number); never save over an existing file.
+- Add new parts as separate, clearly named bodies (e.g. `Body_CameraMount`); do not merge them
+  into existing bodies or change the owner's existing features unless asked.
+- Every printable part must fit the print bed 220 x 215 x 245 mm (X x Y x Z): check its bounding
+  box in the orientation it will be printed and report the numbers.
+- Assume PETG (wall thickness, clearances, overhangs and tolerances chosen for PETG).
+- Report every change: which document and version file, which bodies/features were added or
+  changed, key dimensions, and the bed-fit check.
+- Connection: `claude mcp get freecad` (user scope, host 192.168.1.79, port 9875). The auth token
+  lives only in the Claude Code MCP config (~/.claude.json) - never put it in git or this file.
 
 ## Conventions
 - Explain code changes briefly; put long explanations in comments, not in chat walls.
