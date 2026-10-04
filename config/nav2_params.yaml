@@ -37,7 +37,7 @@ amcl:
     z_max: 0.05
     z_rand: 0.5
     z_short: 0.05
-    scan_topic: scan
+    scan_topic: scan_filtered          # robot self-hits removed
 
 bt_navigator:
   ros__parameters:
@@ -198,11 +198,14 @@ local_costmap:
         enabled: True
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scan_filtered        # robot self-hits removed (scan_self_filter)
           max_obstacle_height: 2.0
           clearing: True
           marking: True
           data_type: "LaserScan"
+          inf_is_valid: true           # "no return" clears the cell line to max range (people leave no trail)
+          observation_persistence: 0.0 # only the latest scan marks (moving obstacles vanish at once)
+          expected_update_rate: 0.0
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
@@ -235,11 +238,14 @@ global_costmap:
         enabled: True
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scan_filtered        # robot self-hits removed (scan_self_filter)
           max_obstacle_height: 2.0
           clearing: True
           marking: True
           data_type: "LaserScan"
+          inf_is_valid: true           # "no return" clears the cell line to max range (people leave no trail)
+          observation_persistence: 0.0 # only the latest scan marks (moving obstacles vanish at once)
+          expected_update_rate: 0.0
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5

@@ -43,6 +43,9 @@ install(PROGRAMS
   scripts/coverage_planner_node.py
   scripts/sim_odom_check.py
   scripts/sim_cleanup.sh
+  scripts/safety_state_node.py
+  scripts/scan_self_filter.py
+  scripts/sim_person.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

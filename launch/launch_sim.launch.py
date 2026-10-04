@@ -68,6 +68,13 @@ def generate_launch_description():
                 )]), launch_arguments={'use_sim_time': 'true'}.items()
     )
 
+    # Safety layer: collision_monitor between twist_mux and diff_cont + /safety_state
+    safety = IncludeLaunchDescription(
+                PythonLaunchDescriptionSource([os.path.join(
+                    get_package_share_directory(package_name),'launch','safety.launch.py'
+                )]), launch_arguments={'use_sim_time': 'true'}.items()
+    )
+
     # Launch them all!
     return LaunchDescription([
         DeclareLaunchArgument('world', default_value='',
@@ -84,5 +91,6 @@ def generate_launch_description():
         diff_drive_spawner,
         joint_broad_spawner,
         imu_ekf,
-        twist_mux
+        twist_mux,
+        safety
     ])

@@ -15,6 +15,7 @@ coverage_planner:
     perimeter_laps: 1                  # 0, 1 or 2 loops along walls/obstacles before the lanes
     coverage_radius: 0.225             # m, half the swath one pass covers (for /coverage_grid)
     min_segment_len: 0.30              # m, ignore lane pieces shorter than this
+    blocked_wait: 5.0                  # s to wait for a blocked path to clear before re-planning
     path_resolution: 0.05              # m between path poses sent to the controller
 
     map_topic: /map

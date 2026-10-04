@@ -1,0 +1,61 @@
+# Safety layer (sim AND real robot): every motion command passes the collision monitor.
+#   twist_mux (/cmd_vel_mux) -> collision_monitor -> /diff_cont/cmd_vel_unstamped
+# safety_state_node reads THIS file too and publishes /safety_state (clear | slow | stop).
+# Robot outline (base_link = rear axle): x -0.10 .. +0.20, y -0.225 .. +0.225.
+# The coverage path keeps the robot centre >= 0.325 m from walls (straight) and >= 0.40 m where
+# it turns: every zone below is designed not to touch walls along that path.
+collision_monitor:
+  ros__parameters:
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "/cmd_vel_mux"
+    cmd_vel_out_topic: "/diff_cont/cmd_vel_unstamped"
+    transform_tolerance: 0.5
+    source_timeout: 1.0          # no fresh /scan for 1 s -> treated as blocked: robot stops
+    base_shift_correction: True
+    stop_pub_timeout: 2.0
+    polygons: ["StopBand", "SlowCorridor"]
+    # Stop: band from the front bumper to 0.10 m ahead, 0.40 m wide. A person/obstacle in front
+    # stops the robot ~0.10 m short. Walls beside the coverage path (centre >= 0.325 m from
+    # walls, >= 0.40 m where it turns) never enter it: farthest point 0.36 m from the axle.
+    # (A full "outline + 0.10 m" box stopped the robot next to walls all the time; Nav2's
+    # "approach" mode was tried and never triggered in this Humble version.) Collisions while
+    # turning on the spot are covered by RPP's footprint collision check on the local costmap.
+    StopBand:
+      type: "polygon"
+      points: [0.30, 0.20, 0.30, -0.20, 0.10, -0.20, 0.10, 0.20]
+      action_type: "stop"
+      max_points: 2              # 3+ laser points inside -> stop
+      visualize: True
+      polygon_pub_topic: "polygon_stop"
+    # Slow (40 %): corridor 0.40 m ahead of the front bumper, robot-wide (not the sides, or the
+    # robot would crawl along every wall).
+    SlowCorridor:
+      type: "polygon"
+      points: [0.60, 0.225, 0.60, -0.225, 0.20, -0.225, 0.20, 0.225]
+      action_type: "slowdown"
+      max_points: 2
+      slowdown_ratio: 0.4
+      visualize: True
+      polygon_pub_topic: "polygon_slowdown"
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "/scan_filtered"     # robot self-hits removed (scan_self_filter)
+
+scan_self_filter:
+  ros__parameters:
+    # Robot outline (x -0.10..0.20, y +-0.225) + 0.03 m; must stay inside the StopZone above.
+    box: [-0.13, 0.23, -0.255, 0.255]
+
+safety_state:
+  ros__parameters:
+    # stop: anything within the outline + 0.04 m on any side (closer than the coverage path ever
+    # gets to walls), slow: anything in the SlowCorridor above, clear: otherwise.
+    stop_zone: [0.24, 0.265, 0.24, -0.265, -0.14, -0.265, -0.14, 0.265]
+    scan_topic: /scan_filtered
+    e_stop_topic: /e_stop
+    state_topic: /safety_state
+    rate_hz: 10.0
+    scan_timeout: 1.0            # older scan -> "stop" (fail safe; 0.5 s flickered when the CPU is busy)
+    hold_time: 0.5               # keep slow/stop this long after the zone clears (no flicker)

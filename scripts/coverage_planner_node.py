@@ -23,9 +23,11 @@ What it does (indoor maps; outdoor use needs the pool keepout first, see CLAUDE.
      short transitions between edge pass and cells.
   6. Everything becomes ONE dense path (every path_resolution m, with headings) that is sent to
      Nav2's controller (FollowPath -> Regulated Pure Pursuit). The robot drives it continuously.
-     If the controller gives up (e.g. an unexpected obstacle), the node re-plans once from where
-     the robot is to a point 0.3 m further along the path; if that fails at the same place too,
-     it skips 1 m ahead. Every abort is counted and logged.
+     If the controller gives up (a person, a moved chair...), the node waits blocked_wait s for
+     the way to clear, then re-plans from the robot to a point 0.3 m further along (Nav2 goes
+     around the obstacle if there is room). If it is still blocked there, it skips 1 m and puts
+     that piece in a revisit queue, which is retried at the end. The final report (also on
+     /coverage/report) lists anything still skipped with its map location.
   7. /coverage_path (nav_msgs/Path) shows the plan, /coverage_grid what has been covered.
 
 Services (std_srvs/Trigger):
@@ -69,6 +71,7 @@ from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import ComputePathToPose, FollowPath
 from nav_msgs.msg import OccupancyGrid, Path
+from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 
@@ -204,6 +207,7 @@ class CoveragePlanner(Node):
         p('max_cost', 50)                       # 0-100 (costmap topic scale); path points stay below
         p('coverage_radius', 0.225)             # m, half the swath that one pass "covers"
         p('min_segment_len', 0.30)              # m, skip lane pieces shorter than this
+        p('blocked_wait', 5.0)                  # s to wait for a blocked path to clear before re-planning
         p('path_resolution', 0.05)              # m between path poses
         p('map_topic', '/map')
         p('global_frame', 'map')
@@ -243,6 +247,7 @@ class CoveragePlanner(Node):
         self.create_subscription(OccupancyGrid, self.gp('costmap_topic'),
                                  lambda m: setattr(self, 'costmap', m), latched, callback_group=self.cb)
         self.path_pub = self.create_publisher(Path, 'coverage_path', latched)
+        self.report_pub = self.create_publisher(String, 'coverage/report', latched)
         self.cov_pub = self.create_publisher(OccupancyGrid, 'coverage_grid', latched)
         self.create_service(Trigger, 'coverage/plan', self._srv_plan, callback_group=self.cb)
         self.create_service(Trigger, 'coverage/start', self._srv_start, callback_group=self.cb)
@@ -813,11 +818,22 @@ class CoveragePlanner(Node):
             self.goal_handle = None
         return rf.result().status
 
+    def _sleep(self, seconds):
+        end = time.time() + seconds
+        while time.time() < end and not self.stop_flag.is_set():
+            time.sleep(0.1)
+
+    def _xy(self, i):
+        p = self.path[min(i, len(self.path) - 1)]
+        return f'({p[0]:.2f}, {p[1]:.2f})'
+
     def _execute(self):
         step = self.gp('path_resolution')
+        wait_s = float(self.gp('blocked_wait'))
         self.progress = 0
         self.aborts = 0
         t0 = time.time()
+        skipped = []                                    # revisit queue: (first, last) path index
         retried_at = None
         approach = self.plan_between(None, self.path[0]) or []      # get onto the path
         target = 0
@@ -827,25 +843,30 @@ class CoveragePlanner(Node):
                 break
             self.aborts += 1
             here = self._nearest_index(self.progress, 100)
+            # Blocked (a person, a moved chair...): wait for the way to clear, then let Nav2 plan
+            # from the robot to a point a bit further on - around the obstacle if there is room.
+            self.get_logger().warn(f'Controller aborted (status {status}) at {self._xy(here)} '
+                                   f'(abort #{self.aborts}); waiting {wait_s:.0f} s for the way to clear')
+            self._sleep(wait_s)
             if retried_at is not None and abs(here - retried_at) < int(1.0 / step):
-                target = here + int(1.0 / step)                     # second failure: skip 1 m
-                what = 'retry failed, skipping 1 m'
+                target = here + int(1.0 / step)                     # still blocked: skip 1 m
+                what = 'still blocked: skipping 1 m (queued for a revisit at the end)'
                 retried_at = None
             else:
-                target = here + int(0.3 / step)                     # first failure: retry once
-                what = 'retrying once from 0.3 m ahead'
+                target = here + int(0.3 / step)                     # first time: retry
+                what = 're-planning to 0.3 m further along (around the obstacle if there is room)'
                 retried_at = here
-            self.get_logger().warn(f'Controller aborted (status {status}) at path index {here} '
-                                   f'(abort #{self.aborts}); {what}')
-            # Get back onto the path. If Nav2 cannot plan to the target (e.g. the robot ended up
-            # too close to something), try further along instead of sending the path blindly
-            # (which only makes the controller abort again straight away).
+            self.get_logger().warn(what)
+            # If Nav2 cannot plan to the target, try further along instead of sending the path
+            # blindly (the controller would only abort again straight away).
             approach = None
             while target < len(self.path) - 1 and not self.stop_flag.is_set():
                 approach = self.plan_between(None, self.path[target])
                 if approach is not None:
                     break
                 target += int(0.5 / step)
+            if target > here + int(0.3 / step):
+                skipped.append((here, min(target, len(self.path) - 1)))
             if approach is None:
                 self.get_logger().error('Cannot plan back onto the coverage path; stopping.')
                 break
@@ -853,10 +874,37 @@ class CoveragePlanner(Node):
                 self.get_logger().error('Too many aborts without progress; stopping.')
                 break
             self.progress = target
+
+        # Revisit queue: try every skipped piece once more (the obstacle may have gone).
+        merged = []
+        for a_, b_ in sorted(skipped):
+            if merged and a_ <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], b_))
+            else:
+                merged.append((a_, b_))
+        still, revisited = [], 0
+        for a_, b_ in merged:
+            if self.stop_flag.is_set():
+                still.append((a_, b_))
+                continue
+            self.get_logger().info(f'Revisiting skipped piece {self._xy(a_)} -> {self._xy(b_)}')
+            appr = self.plan_between(None, self.path[a_])
+            ok = appr is not None and self._follow(appr + self.path[a_:b_ + 1]) == GoalStatus.STATUS_SUCCEEDED
+            if ok:
+                revisited += 1
+            else:
+                still.append((a_, b_))
         mins = (time.time() - t0) / 60.0
         state = 'stopped' if self.stop_flag.is_set() else 'finished'
-        self.get_logger().info(f'Coverage {state} after {mins:.1f} min, {self.aborts} controller '
-                               f'aborts. Covered {self._percent():.0f}% of the reachable area.')
+        report = (f'Coverage {state} after {mins:.1f} min, {self.aborts} controller aborts, covered '
+                  f'{self._percent():.0f}% of the reachable area; revisited {revisited} of '
+                  f'{len(merged)} skipped piece(s)')
+        if still:
+            report += '; STILL SKIPPED: ' + ', '.join(f'{self._xy(a_)} -> {self._xy(b_)}' for a_, b_ in still)
+            self.get_logger().warn(report)
+        else:
+            self.get_logger().info(report)
+        self.report_pub.publish(String(data=report))
 
     # ------------------------------------------------------------------ coverage tracking
     def _track_coverage(self):

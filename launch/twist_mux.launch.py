@@ -1,5 +1,6 @@
 # Velocity multiplexer: Nav2 (/cmd_vel), keyboard (/cmd_vel_keyboard), joystick (/cmd_vel_joy)
-# and the /e_stop lock -> /diff_cont/cmd_vel_unstamped. Priorities in config/twist_mux.yaml.
+# and the /e_stop lock -> /cmd_vel_mux -> collision_monitor -> /diff_cont/cmd_vel_unstamped.
+# Priorities in config/twist_mux.yaml.
 # Included by launch_robot.launch.py and launch_sim.launch.py (use_sim_time:=true).
 import os
 
@@ -21,7 +22,8 @@ def generate_launch_description():
         name='twist_mux',
         output='screen',
         parameters=[params, {'use_sim_time': use_sim_time}],
-        remappings=[('cmd_vel_out', '/diff_cont/cmd_vel_unstamped')],
+        # -> collision_monitor (launch/safety.launch.py) -> /diff_cont/cmd_vel_unstamped
+        remappings=[('cmd_vel_out', '/cmd_vel_mux')],
     )
 
     return LaunchDescription([

@@ -42,7 +42,7 @@
                     </horizontal>
                 </scan>
                 <range>
-                    <min>0.3</min>
+                    <min>0.12</min>   <!-- sim only. 0.3 hid the stop zone; 0.05 or less starts rays on the laser housing (radius 0.05) and returns nothing -->
                     <max>12</max>
                     <resolution>0.01</resolution>
                 </range>

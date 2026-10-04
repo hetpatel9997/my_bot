@@ -6,6 +6,11 @@
   <world name="room">
     <include><uri>model://ground_plane</uri></include>
     <include><uri>model://sun</uri></include>
+    <!-- /gazebo/set_entity_state etc.: lets scripts/sim_person.py move a "person" around -->
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros><namespace>/gazebo</namespace></ros>
+      <update_rate>20.0</update_rate>
+    </plugin>
     <physics type="ode">
       <!-- 500 Hz physics (default 1000) halves the physics load on the 2-core VM -->
       <real_time_update_rate>500.0</real_time_update_rate>

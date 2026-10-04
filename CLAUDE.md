@@ -54,13 +54,20 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_keyboard -p speed:=0.1 -p turn:=0.5`;
   VM: `rviz2 -d ~/dev_ws/src/my_bot/config/drive_test.rviz` (fixed frame odom, robot model, /scan, TF).
 - Velocity path (sim AND robot): `launch/twist_mux.launch.py` (included by launch_robot and launch_sim)
-  -> `/diff_cont/cmd_vel_unstamped`. Inputs (`config/twist_mux.yaml`): Nav2 `/cmd_vel` priority 70,
+  -> `/cmd_vel_mux` -> collision_monitor (`launch/safety.launch.py`) -> `/diff_cont/cmd_vel_unstamped`. Inputs (`config/twist_mux.yaml`): Nav2 `/cmd_vel` priority 70,
   keyboard `/cmd_vel_keyboard` 90, joystick `/cmd_vel_joy` 100, each with a 0.5 s timeout (teleop
   overrides Nav2 only while keys are held: hold `k` to stop). Lock `/e_stop` (std_msgs/Bool,
   priority 255, latched): `ros2 topic pub --once /e_stop std_msgs/msg/Bool "{data: true}"` blocks
-  every input until `{data: false}`; this is the hook for the person/pet 2 m stop. Never publish
-  straight to `/diff_cont/cmd_vel_unstamped` while twist_mux runs. The Pi needs
-  `ros-humble-twist-mux` (apt) or launch_robot fails. Sim test 2026-10-03: Nav2 goal 1 m SUCCEEDED;
+  every input until `{data: false}`. Never publish straight to `/diff_cont/cmd_vel_unstamped`.
+- `launch/safety.launch.py` (in launch_robot and launch_sim): collision_monitor (+ its lifecycle
+  manager), `scan_self_filter.py` (`/scan` -> `/scan_filtered` without returns from the robot
+  itself; ALL scan users read `/scan_filtered`: costmaps, AMCL, SLAM, collision monitor) and
+  `safety_state_node.py` (`/safety_state`). If any of them is down, the robot cannot move.
+- The Pi needs (apt) before the next launch_robot: `ros-humble-twist-mux`,
+  `ros-humble-nav2-collision-monitor`, `python3-scipy`.
+- Sim "person": `ros2 run my_bot sim_person.py spawn X Y | move X1 Y1 X2 Y2 [SPEED] | remove`
+  (0.4 m x 1.7 m cylinder; room.world has the gazebo_ros_state plugin). Sim LiDAR min range
+  0.12 m (0.3 hid the stop zone; <= 0.05 starts rays on the laser housing and returns nothing). Sim test 2026-10-03: Nav2 goal 1 m SUCCEEDED;
   keyboard override and /e_stop both stopped the robot, Nav2 resumed after release.
 - Gazebo coverage test (VM only; run `ros_local` first in EVERY terminal so the sim stays off the
   Pi's discovery server): world `worlds/room.world` (5 x 4 m, table + couch boxes, robot spawns at
@@ -172,7 +179,15 @@ camera_link, camera_link_optical, arm_base_link ... spray_nozzle_link.
   Room-world results 2026-10-03 (headless, perimeter_laps 1): dense 88% in 328 s, medium 89% in
   307 s, wide 80% in 226 s (wide lanes are 0.50 m apart, wider than the 0.45 m swath, so gaps are
   expected); 2-4 controller aborts per run, all recovered by retry/skip at the same two spots.
-  Needs python3-scipy (apt) on the Pi.
+  Blocked path: waits blocked_wait (5 s), re-plans around if there is room, else skips 1 m into
+  a revisit queue retried at the end; the final report (log + latched `/coverage/report`) lists
+  anything still skipped with its map location. Needs python3-scipy (apt) on the Pi.
+  Obstacle test 2026-10-04 (room world, medium): person standing on the path -> robot stopped
+  0.06 m short, waited/re-planned, piece queued; person crossing from the side came within 0.01 m
+  (front-only stop band); 88% covered. KNOWN ISSUE: 8 of 13 aborts were false stops with nobody
+  there, from RPP's "collision ahead" check near walls (46 warnings); revisits of wall-side pieces
+  fail the same way (1 of 6 revisited). Next: tune/disable RPP collision detection now that the
+  collision monitor covers the front.
 - Phase 4: detector node on the Pi (low fps is fine). Needs Phase 1 camera.
 - Phase 5: weed localization to map frame, verified within 10 cm at 1 m.
 - Phase 6: weed_manager + NavigateToPose to a standoff pose.
@@ -214,7 +229,19 @@ Hardware is on the bench, not in the chassis; rebuild = caster in front, 30T:40T
 - Never spray inside a keepout/flower-bed zone. Never enable the spray relay in simulation
   or on the bench without the owner explicitly asking in that session.
 - Cap `max_vel_x` at 0.3 m/s and `max_vel_theta` at 1.0 rad/s in nav2_params.
-- Stop everything if a person or pet is within 2 m (to be implemented; keep the hook).
+- SPRAY ONLY WHEN `/safety_state` IS `clear`. The spray controller must subscribe to
+  `/safety_state` (std_msgs/String, latched, 10 Hz: clear | slow | stop) and close the valve
+  immediately on anything else, on a missing/old message, or on `/e_stop` true.
+- Every motion command goes through the collision monitor (sim and robot):
+  twist_mux -> `/cmd_vel_mux` -> collision_monitor -> `/diff_cont/cmd_vel_unstamped`. Never
+  publish straight to `/diff_cont/cmd_vel_unstamped`. Zones in `config/safety.yaml`: stop band
+  from the front bumper to 0.10 m ahead (0.40 m wide); slow (40 %) corridor 0.40 m ahead of the
+  bumper. Full outline+0.10 m boxes stopped the robot beside every wall; Nav2 "approach" mode
+  never triggered in this Humble version. Side/rear contact while turning is left to RPP's
+  footprint check. No LiDAR data for 1 s -> stop. Do not remove or bypass it.
+  `/safety_state`: stop = anything within outline + 0.04 m, e-stop or no scan; slow = slow corridor.
+- Stop everything if a person or pet is within 2 m (to be implemented on top of /safety_state;
+  the current zones only cover the robot's immediate surroundings).
 
 ## Conventions
 - Explain code changes briefly; put long explanations in comments, not in chat walls.

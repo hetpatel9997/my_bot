@@ -1,5 +1,5 @@
-# twist_mux: picks ONE velocity source for diff_cont (output -> /diff_cont/cmd_vel_unstamped,
-# see launch/twist_mux.launch.py). Higher priority wins while its messages keep arriving;
+# twist_mux: picks ONE velocity source (output /cmd_vel_mux -> collision_monitor ->
+# /diff_cont/cmd_vel_unstamped; see launch/twist_mux.launch.py and launch/safety.launch.py). Higher priority wins while its messages keep arriving;
 # after `timeout` seconds of silence the next source takes over.
 # twist_mux 4.3 (Humble) always uses unstamped geometry_msgs/Twist, matching diff_cont.
 twist_mux:
