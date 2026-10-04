@@ -186,8 +186,10 @@ camera_link, camera_link_optical, arm_base_link ... spray_nozzle_link.
   0.06 m short, waited/re-planned, piece queued; person crossing from the side came within 0.01 m
   (front-only stop band); 88% covered. KNOWN ISSUE: 8 of 13 aborts were false stops with nobody
   there, from RPP's "collision ahead" check near walls (46 warnings); revisits of wall-side pieces
-  fail the same way (1 of 6 revisited). Next: tune/disable RPP collision detection now that the
-  collision monitor covers the front.
+  fail the same way (1 of 6 revisited). Do NOT disable RPP collision detection: tested
+  2026-10-04, it is the only side/corner protection - a person crossing from the side hit the
+  robot (gap -0.20 m), the sim robot was shoved and got stuck, coverage fell to 38%. Fix the
+  false stops by tuning it (shorter look-ahead) or by more wall clearance instead.
 - Phase 4: detector node on the Pi (low fps is fine). Needs Phase 1 camera.
 - Phase 5: weed localization to map frame, verified within 10 cm at 1 m.
 - Phase 6: weed_manager + NavigateToPose to a standoff pose.
