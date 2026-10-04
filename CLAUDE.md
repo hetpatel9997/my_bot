@@ -65,7 +65,8 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   `safety_state_node.py` (`/safety_state`). If any of them is down, the robot cannot move.
 - The Pi needs (apt) before the next launch_robot: `ros-humble-twist-mux`,
   `ros-humble-nav2-collision-monitor`, `python3-scipy`.
-- Sim "person": `ros2 run my_bot sim_person.py spawn X Y | move X1 Y1 X2 Y2 [SPEED] | remove`
+- Sim "person": `ros2 run my_bot sim_person.py spawn --ahead 0.5 [--left L] | cross --ahead 1.0 --speed 0.2 |
+  spawn X Y | move X1 Y1 X2 Y2 [SPEED] | remove` (relative = from Gazebo's true robot pose)
   (0.4 m x 1.7 m cylinder; room.world has the gazebo_ros_state plugin). Sim LiDAR min range
   0.12 m (0.3 hid the stop zone; <= 0.05 starts rays on the laser housing and returns nothing). Sim test 2026-10-03: Nav2 goal 1 m SUCCEEDED;
   keyboard override and /e_stop both stopped the robot, Nav2 resumed after release.
