@@ -202,7 +202,7 @@ class CoveragePlanner(Node):
         p('perimeter_laps', 1)                  # 0, 1 or 2 loops along walls/obstacles first
         p('nav2_params_file', os.path.join(get_package_share_directory('my_bot'),
                                            'config', 'nav2_params.yaml'))
-        p('clearance_margin', 0.09)             # m extra gap to obstacles (on top of padding)
+        p('clearance_margin', 0.12)             # m extra gap to obstacles (on top of padding)
         p('costmap_topic', '/global_costmap/costmap')
         p('max_cost', 50)                       # 0-100 (costmap topic scale); path points stay below
         p('coverage_radius', 0.225)             # m, half the swath that one pass "covers"

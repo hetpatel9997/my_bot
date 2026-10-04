@@ -144,7 +144,7 @@ controller_server:
     # Speed caps (CLAUDE.md): max_vel_x <= 0.3 m/s, max_vel_theta <= 1.0 rad/s.
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.22
+      desired_linear_vel: 0.15         # top speed 0.15 m/s everywhere (stopping distance)
       lookahead_dist: 0.25
       min_lookahead_dist: 0.15          # small: coverage U-turns have a 0.2 m radius
       max_lookahead_dist: 0.45
@@ -350,10 +350,10 @@ velocity_smoother:
     smoothing_frequency: 10.0        # matches controller_frequency
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.26, 0.0, 1.0]
-    min_velocity: [-0.26, 0.0, -1.0]
+    max_velocity: [0.15, 0.0, 1.0]    # top speed 0.15 m/s (also capped in diff_cont)
+    min_velocity: [-0.15, 0.0, -1.0]
     max_accel: [2.5, 0.0, 3.2]
-    max_decel: [-2.5, 0.0, -3.2]
+    max_decel: [-2.5, 0.0, -3.2]      # brake as hard as the drive allows (collision-monitor stops bypass this anyway)
     odom_topic: /odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

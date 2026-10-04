@@ -1,5 +1,6 @@
 # Safety layer (sim AND real robot): every motion command passes the collision monitor.
-#   twist_mux (/cmd_vel_mux) -> collision_monitor -> /diff_cont/cmd_vel_unstamped
+#   twist_mux (/cmd_vel_mux) -> safety_state_node (speed governor, /cmd_vel_capped)
+#     -> collision_monitor -> /diff_cont/cmd_vel_unstamped
 # safety_state_node reads THIS file too and publishes /safety_state (clear | slow | stop).
 # Robot outline (base_link = rear axle): x -0.10 .. +0.20, y -0.225 .. +0.225.
 # The coverage path keeps the robot centre >= 0.325 m from walls (straight) and >= 0.40 m where
@@ -8,7 +9,7 @@ collision_monitor:
   ros__parameters:
     base_frame_id: "base_link"
     odom_frame_id: "odom"
-    cmd_vel_in_topic: "/cmd_vel_mux"
+    cmd_vel_in_topic: "/cmd_vel_capped"   # from safety_state_node (speed governor)
     cmd_vel_out_topic: "/diff_cont/cmd_vel_unstamped"
     transform_tolerance: 0.5
     source_timeout: 1.0          # no fresh /scan for 1 s -> treated as blocked: robot stops
@@ -59,3 +60,14 @@ safety_state:
     rate_hz: 10.0
     scan_timeout: 1.0            # older scan -> "stop" (fail safe; 0.5 s flickered when the CPU is busy)
     hold_time: 0.5               # keep slow/stop this long after the zone clears (no flicker)
+    # Unknown obstacles (scan points > unknown_tolerance from anything on /map, e.g. a person):
+    # within unknown_radius -> state "slow" and every command capped at unknown_speed.
+    map_topic: /map
+    unknown_radius: 1.5
+    unknown_tolerance: 0.25            # m; covers localisation error and thin map walls
+    unknown_min_points: 3
+    unknown_speed: 0.08                # m/s
+    unknown_hold: 1.0                  # s the cap stays on after the obstacle is gone
+    cmd_in: /cmd_vel_mux
+    cmd_out: /cmd_vel_capped
+    speed_limit_topic: /speed_limit    # Nav2 controller_server speed limit

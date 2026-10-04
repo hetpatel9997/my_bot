@@ -21,6 +21,19 @@ diff_cont:
     wheel_separation: 0.1895
     wheel_radius: 0.06985
     use_stamped_vel: false
+    # Hard limits for EVERY command source (Nav2, keyboard, joystick): top speed 0.15 m/s.
+    # No acceleration limit: a stop command goes to the wheels at once (fastest braking the
+    # motors/PID allow). Command timeout 0.25 s (default 0.5): with the e-stop lock nothing is
+    # published, so the wheels stop after this timeout.
+    cmd_vel_timeout: 0.25
+    linear.x.has_velocity_limits: true
+    linear.x.max_velocity: 0.15
+    linear.x.min_velocity: -0.15
+    linear.x.has_acceleration_limits: false
+    angular.z.has_velocity_limits: true
+    angular.z.max_velocity: 1.0
+    angular.z.min_velocity: -1.0
+    angular.z.has_acceleration_limits: false
 
 joint_broad:
   ros__parameters:

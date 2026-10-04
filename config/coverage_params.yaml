@@ -2,9 +2,10 @@ coverage_planner:
   ros__parameters:
     # Robot size is NOT set here: it is read from the footprint (+ padding) in nav2_params.yaml,
     # the same outline Nav2 plans and drives with.
-    clearance_margin: 0.09             # m extra gap on top of footprint_padding (~2 costmap cells:
+    clearance_margin: 0.12             # m extra gap on top of footprint_padding (0.09 left repeat
+                                       # false stops at walls; ~2 costmap cells needed:
                                        # less and RPP's footprint collision check fires near walls)
-    # -> centre keeps >= 0.325 m from obstacles on straight runs, >= 0.40 m where it turns.
+    # -> centre keeps >= 0.355 m from obstacles on straight runs, >= 0.43 m where it turns.
     max_cost: 50                       # global costmap (0-100): every path point stays below this
     costmap_topic: /global_costmap/costmap
 

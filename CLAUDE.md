@@ -182,12 +182,11 @@ camera_link, camera_link_optical, arm_base_link ... spray_nozzle_link.
   Blocked path: waits blocked_wait (5 s), re-plans around if there is room, else skips 1 m into
   a revisit queue retried at the end; the final report (log + latched `/coverage/report`) lists
   anything still skipped with its map location. Needs python3-scipy (apt) on the Pi.
-  Obstacle tests 2026-10-04 (room world, medium, RPP collision look-ahead 0.4 s; was 0.8):
-  89% covered, 7 aborts of which 5 false stops beside walls (was 8 with 0.8 s; "collision ahead"
-  warnings 46 -> 7). Standing person stepping in 0.20 m ahead of the bumper at 0.19 m/s: robot
-  stopped, but ~14 cm after detection -> 4 cm contact. The 0.10 m stop band is too short for
-  someone stepping in close at full speed (the slow corridor normally brings the speed to 40%
-  first, stopping distance ~6 cm). OPEN DECISION: deeper stop band vs lower top speed.
+  Person tests 2026-10-04 (room world, medium, 0.15 m/s top speed, path 0.03 m further from walls):
+  0 contacts. Person standing on the path: stopped 0.10 m short. Person stepping in 0.20 m in
+  front of the bumper (verified) at 0.13 m/s: stopped 0.09 m short. 85% covered in 9.8 min;
+  4 false stops (couch corner near the start, top wall, and two beside the table where the saved
+  room_map lacks the table's front edge -> remap the room to remove those); all revisits succeeded.
   Do NOT disable RPP collision detection: tested, it is the only side/corner protection (a person
   crossing from the side hit the robot, gap -0.20 m; coverage fell to 38%).
 - Phase 4: detector node on the Pi (low fps is fine). Needs Phase 1 camera.
@@ -230,7 +229,9 @@ Hardware is on the bench, not in the chassis; rebuild = caster in front, 30T:40T
   outdoor coverage paths without it.
 - Never spray inside a keepout/flower-bed zone. Never enable the spray relay in simulation
   or on the bench without the owner explicitly asking in that session.
-- Cap `max_vel_x` at 0.3 m/s and `max_vel_theta` at 1.0 rad/s in nav2_params.
+- Cap `max_vel_x` at 0.3 m/s and `max_vel_theta` at 1.0 rad/s in nav2_params. Current top speed
+  is 0.15 m/s EVERYWHERE (diff_cont limits in my_controllers.yaml cap every source; RPP and the
+  velocity smoother match), and 0.08 m/s whenever an unknown obstacle is within 1.5 m.
 - SPRAY ONLY WHEN `/safety_state` IS `clear`. The spray controller must subscribe to
   `/safety_state` (std_msgs/String, latched, 10 Hz: clear | slow | stop) and close the valve
   immediately on anything else, on a missing/old message, or on `/e_stop` true.
@@ -241,7 +242,14 @@ Hardware is on the bench, not in the chassis; rebuild = caster in front, 30T:40T
   bumper. Full outline+0.10 m boxes stopped the robot beside every wall; Nav2 "approach" mode
   never triggered in this Humble version. Side/rear contact while turning is left to RPP's
   footprint check. No LiDAR data for 1 s -> stop. Do not remove or bypass it.
-  `/safety_state`: stop = anything within outline + 0.04 m, e-stop or no scan; slow = slow corridor.
+  `/safety_state`: stop = anything within outline + 0.04 m, e-stop or no scan; slow = slow corridor
+  OR an unknown obstacle (3+ scan points > 0.25 m from anything on /map) within 1.5 m.
+  Command chain: twist_mux -> `/cmd_vel_mux` -> safety_state_node (speed governor: caps EVERY
+  command at 0.08 m/s near unknown obstacles, also sends Nav2 `/speed_limit`; sends zeros at once
+  on `/e_stop`) -> `/cmd_vel_capped` -> collision_monitor -> diff_cont. If it dies, nothing moves.
+  Braking (sim, command -> standstill): ~2.5-3.5 cm at 0.12-0.14 m/s (~4 cm at 0.15), ~1.2-1.7 cm
+  at 0.065 m/s (~2 cm at 0.08); e-stop the same. Plus up to ~0.2 s detection delay. diff_cont has
+  no acceleration limit (fastest stop), cmd_vel_timeout 0.25 s. Re-measure on the real robot.
 - Stop everything if a person or pet is within 2 m (to be implemented on top of /safety_state;
   the current zones only cover the robot's immediate surroundings).
 
