@@ -2,14 +2,13 @@
 #   twist_mux (/cmd_vel_mux) -> safety_state_node (speed governor, /cmd_vel_capped)
 #     -> collision_monitor -> /diff_cont/cmd_vel_unstamped
 # safety_state_node reads THIS file too and publishes /safety_state (clear | slow | stop).
-# Robot outline (CAD v17, base_link = ground under the rear axle): the Nav2 footprint in
+# Robot outline (CAD v17/v19, base_link = ground under the rear axle): the Nav2 footprint in
 # nav2_params.yaml, bounding box x -0.108 .. +0.520 (caster nose), y -0.158 .. +0.158.
 # The coverage path keeps the robot centre >= 0.288 m from walls (straight) and >= 0.66 m where
 # it turns: every zone below is designed not to touch walls along that path.
-# BLIND SPOT: the spray tank is in the LiDAR scan plane and hides a ~54 deg cone straight ahead
-# (+-27 deg, wider than the robot from 0.3 m ahead on). The zones AHEAD of the robot (StopBand,
-# SlowCorridor, front of stop_zone) lie inside that cone and cannot see anything there until a
-# forward sensor is added. Sides and rear work as before.
+# LiDAR (v19): LD06 on the spray tank, scan plane 0.378 m above the ground. It sees all zones ahead
+# and beside the robot, but NOTHING LOWER THAN 0.378 m (low boxes, pets, edging, pots). Blind sector
+# ~32 deg straight behind (the arm): the rear of stop_zone is blind within ~0.11 m of the centre line.
 collision_monitor:
   ros__parameters:
     base_frame_id: "base_link"
@@ -52,10 +51,9 @@ collision_monitor:
 
 scan_self_filter:
   ros__parameters:
-    # Self-hits of the v17 robot: the spray tank (0.23-0.33 m ahead of the lidar, +-27 deg) and the
-    # tower column (inside the tank's shadow). Footprint bounding box + 0.002-0.01 m; must stay
-    # inside stop_zone below. (= laser_filters LaserScanBoxFilter in base_link, x -0.11..0.53,
-    # y -0.16..0.16, z 0..0.6: the 2D scan plane at z 0.268 is always inside the z range.)
+    # Robot self-hits (v19: the arm, 0.256 m behind the LD06, ~32 deg). Footprint bounding box
+    # + 0.002-0.01 m; must stay inside stop_zone below. (= laser_filters LaserScanBoxFilter in
+    # base_link, x -0.11..0.53, y -0.16..0.16, z 0..0.6: the scan plane at z 0.378 is inside.)
     box: [-0.11, 0.53, -0.16, 0.16]
 
 safety_state:

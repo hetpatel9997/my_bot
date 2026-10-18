@@ -20,10 +20,13 @@
           </horizontal>
         </scan>
         <range>
-          <!-- 0.05: just outside the LD06 housing (radius 0.019), so the sim sees the tower column
-               0.06-0.10 m in front of the laser and the spray tank like the real LD06 does
-               (scan_self_filter removes both). The old 0.12 was for the old 0.05 m housing. -->
-          <min>0.05</min>
+          <!-- 0.14 (v19, LD06 on the tank): every ray must START outside the tank's outline seen from
+               above (farthest tank corner 0.130 m from the laser). With 0.05 the backward rays started
+               above the tank top (2.4 cm below the scan plane) and Gazebo's ray-box test reported
+               flickering false hits at the tank's rear edge (0.052 m) whenever the robot pitched a
+               hair nose-up. Everything within 0.14 m is inside scan_self_filter's box anyway. The arm
+               (0.256 m behind) still shows up like on the real LD06 (min range 0.02). -->
+          <min>0.14</min>
           <max>12</max>
           <resolution>0.01</resolution>
         </range>

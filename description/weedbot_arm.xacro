@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <!--
-  Sprayer arm on top of the lidar tower (rear top of the robot): 4 x MG996R + a wrist roll.
+  Sprayer arm on the top cover (rear of the robot, CAD v19): 4 x MG996R + a wrist roll.
     arm_base_yaw   : servo 1, hangs under the base plate behind the axis and turns the arm through
-                     a gear, about the vertical axis above the lidar (yaw range: MEASURE)
+                     a gear, about the vertical axis at arm_x (yaw range: MEASURE)
     shoulder_pitch : servo 2
     elbow_pitch    : servo 3
     wrist_pitch    : servo 4
@@ -55,7 +55,7 @@
     </link>
   </xacro:macro>
 
-  <!-- base plate on the tower, directly above the lidar; the yaw servo hangs under it -->
+  <!-- base plate set into the top cover (top = cover top = yaw joint); the yaw servo hangs under it -->
   <joint name="arm_base_joint" type="fixed">
     <parent link="base_link"/>
     <child link="arm_base"/>
@@ -63,14 +63,12 @@
   </joint>
   <link name="arm_base">
     <visual><geometry><cylinder radius="${arm_plate_r}" length="${arm_plate_t}"/></geometry><material name="petg_blue"/></visual>
-    <!-- the plate reaches forward to the column -->
-    <visual><origin xyz="${(tower_x-arm_x)/2} 0 0"/><geometry><box size="${fabs(arm_x-tower_x)} ${tower_w+0.02} ${arm_plate_t}"/></geometry><material name="petg_blue"/></visual>
     <collision><geometry><cylinder radius="${arm_plate_r}" length="${arm_plate_t}"/></geometry></collision>
     <inertial><mass value="0.15"/><xacro:cyl_inertia m="0.15" r="${arm_plate_r}" h="${arm_plate_t}"/></inertial>
   </link>
 
-  <!-- yaw servo (servo 1) under the plate, arm_yaw_servo_dx behind the axis, shaft up into the gear
-       (drawn as a full MG996R box hanging from the plate: check the clearance to the LD06 in CAD) -->
+  <!-- yaw servo (servo 1) under the plate (inside the body), arm_yaw_servo_dx behind the axis, shaft
+       up into the gear -->
   <joint name="arm_yaw_servo_joint" type="fixed">
     <parent link="arm_base"/>
     <child link="arm_yaw_servo"/>

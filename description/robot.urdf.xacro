@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
-<!-- WeedBot (rebuilt 2026-10): rear differential drive + front stem caster, lidar tower with the LD06
-     under the 4-servo arm, phone mount. All measurements: weedbot_properties.xacro (MEASURE markers).
+<!-- WeedBot (rebuilt 2026-10): rear differential drive + front stem caster, spray tank with the LD06
+     on top, sprayer arm on the top cover, phone mount. All measurements: weedbot_properties.xacro (MEASURE markers).
      base_link = on the ground under the centre of the rear axle.
      Old files kept on disk but no longer included: robot_core.xacro, lidar.xacro, camera.xacro,
      phone_mount.xacro (the body defines phone_mount -> phone_optical -> phone_link itself). -->

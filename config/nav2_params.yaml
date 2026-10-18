@@ -185,7 +185,7 @@ local_costmap:
       resolution: 0.05
       # Robot outline (CAD v17, base_link = ground under the rear axle): body shell x -0.073..0.299,
       # 0.316 wide; tapering forward to the caster nose at x 0.520 (caster wheel trailing forward);
-      # rear corners cut in to x -0.108 (lidar tower / arm). Farthest point 0.53 m from the axle
+      # rear corners cut in to x -0.108 (CAD v17; v19 moved the arm base). Farthest point 0.53 m from the axle
       # (the nose): that is the circle the robot sweeps turning on the spot. Same outline in the
       # global costmap; zones in safety.yaml. Update together with weedbot_properties.xacro.
       footprint: "[[0.520, 0.101], [0.299, 0.158], [-0.073, 0.158], [-0.108, 0.080], [-0.108, -0.080], [-0.073, -0.158], [0.299, -0.158], [0.520, -0.101]]"

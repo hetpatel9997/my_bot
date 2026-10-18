@@ -6,7 +6,7 @@ Subscribes /scan, sets every reading whose point lies inside the robot outline p
 (in base_link) to NaN ("no valid reading", like laser_filters' LaserScanBoxFilter), and publishes
 /scan_filtered. Not +inf: the costmaps run with inf_is_valid, which turns +inf into a free-space
 ray out to 3 m, so every self-hit ray would erase real obstacles behind the robot part it hit
-(with the v17 spray tank: everything in the ~54 deg cone straight ahead). Everything else (costmaps,
+(e.g. everything in the arm's shadow behind the robot). Everything else (costmaps,
 AMCL, SLAM, collision monitor, /safety_state) uses /scan_filtered, so the robot's own chassis,
 post or wheels never look like an obstacle (in the sim they made the collision monitor stop
 the robot permanently). If this node dies, /scan_filtered stops and the collision monitor

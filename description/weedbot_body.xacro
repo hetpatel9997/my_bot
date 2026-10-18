@@ -1,8 +1,9 @@
 <?xml version="1.0"?>
 <!--
   WeedBot body: bottom + top frame, body shell, rear drive wheels, front stem caster (the nose),
-  electronics plate, spray tank, lidar tower with the LD06 at the rear top under the arm base, and
-  the phone mount. Include from robot.urdf.xacro:
+  electronics plate, spray tank with the LD06 on top (on a puck), and the phone mount. The arm base
+  sits on the top cover (weedbot_arm.xacro); there is no lidar tower since CAD v19.
+  Include from robot.urdf.xacro:
       <xacro:include filename="weedbot_properties.xacro"/>
       <xacro:include filename="weedbot_body.xacro"/>
       <xacro:include filename="weedbot_arm.xacro"/>
@@ -271,28 +272,17 @@
     </link>
   </xacro:unless>
 
-  <!-- =============================== lidar tower + LD06 =============================== -->
-  <!-- one column at the rear top, standing on the top cover; the LD06 sits on a shelf BEHIND it and
-       the arm base plate on top. In the scan plane: the column (inside the tank's shadow) and the
-       spray tank = ~54 deg blind sector straight ahead (removed by scan_self_filter). -->
-  <joint name="tower_joint" type="fixed">
+  <!-- =============================== LD06 on the spray tank =============================== -->
+  <!-- puck on the tank top, LD06 on the puck. In the scan plane (0.378) only the arm: ~32 deg blind
+       sector straight behind (removed by scan_self_filter). -->
+  <joint name="lidar_puck_joint" type="fixed">
     <parent link="base_link"/>
-    <child link="tower"/>
-    <origin xyz="${tower_x} 0 ${(tower_base_z+arm_base_z)/2}"/>
+    <child link="lidar_puck"/>
+    <origin xyz="${lidar_x} 0 ${puck_z0+puck_h/2}"/>
   </joint>
-  <link name="tower">
-    <visual><geometry><box size="${tower_d} ${tower_w} ${arm_base_z-tower_base_z}"/></geometry><material name="petg_blue"/></visual>
-    <collision><geometry><box size="${tower_d} ${tower_w} ${arm_base_z-tower_base_z}"/></geometry></collision>
-    <inertial><mass value="0.2"/><xacro:box_inertia m="0.2" x="${tower_d}" y="${tower_w}" z="${arm_base_z-tower_base_z}"/></inertial>
-  </link>
-
-  <joint name="lidar_shelf_joint" type="fixed">
-    <parent link="base_link"/>
-    <child link="lidar_shelf"/>
-    <origin xyz="${(tower_x+lidar_x)/2} 0 ${lidar_base_z-shelf_t/2}"/>
-  </joint>
-  <link name="lidar_shelf">
-    <visual><geometry><box size="${fabs(lidar_x-tower_x)+lidar_dia} ${lidar_dia+0.02} ${shelf_t}"/></geometry><material name="petg_blue"/></visual>
+  <link name="lidar_puck">
+    <visual><geometry><box size="${puck_size} ${puck_size} ${puck_h}"/></geometry><material name="petg_blue"/></visual>
+    <collision><geometry><box size="${puck_size} ${puck_size} ${puck_h}"/></geometry></collision>
   </link>
 
   <joint name="lidar_joint" type="fixed">
