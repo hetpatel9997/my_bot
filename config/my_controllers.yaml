@@ -18,8 +18,8 @@ diff_cont:
     twist_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.01]
     left_wheel_names: ['left_wheel_joint']
     right_wheel_names: ['right_wheel_joint']
-    wheel_separation: 0.1895
-    wheel_radius: 0.06985
+    wheel_separation: 0.176   # = weedbot_properties.xacro (CAD v17): tyre centres y +-0.088
+    wheel_radius: 0.0635      # = weedbot_properties.xacro (5 in wheel)
     use_stamped_vel: false
     # Hard limits for EVERY command source (Nav2, keyboard, joystick): top speed 0.15 m/s.
     # No acceleration limit: a stop command goes to the wheels at once (fastest braking the

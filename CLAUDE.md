@@ -46,7 +46,7 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
 - LiDAR: `ros2 launch my_bot lidar.launch.py` (ldlidar_stl_ros2 from `~/robot_ws/src`, params in
   `config/ldlidar.yaml`: LD19 mode, 230400, `frame_id: laser_frame`, default port `/dev/ldlidar`
   = udev symlink to the CP2102 (10c4:ea60), currently ttyUSB0). No static TF: the URDF provides
-  `laser_frame` (weedbot_body.xacro: base_link + x 0.13, z 0.238 = scan plane on the lidar tower).
+  `laser_frame` (weedbot_body.xacro: base_link + x -0.036, z 0.268 = scan plane on the rear lidar tower).
   Do not use the vendor `ld06.launch.py` (frame
   `base_laser` + its own static TF).
 - Drive test (manual, nothing starts at boot). Pi terminal 1: `ros2 launch my_bot launch_robot.launch.py`
@@ -130,8 +130,8 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   once anchored. `description/weedbot_body.xacro` adds base_link -> phone_mount -> phone_optical ->
   phone_link (since 2026-10-18; `phone_mount.xacro` is kept but no longer included): phone in
   landscape, home-button end on the right seen from behind, camera forward. `phone_xyz` =
-  (phone_bracket_x + 0.036, 0, deck + 0.058) = (0.236, 0, 0.1485) from the CAD, in
-  `weedbot_properties.xacro` (phone_bracket_x is a MEASURE value), `phone_tilt` 35 deg; it sets the
+  (0.2244, 0.0498, 0.1481) from CAD v17 (camera 0.0498 m LEFT of the centre line), in
+  `weedbot_properties.xacro` (the holder may still move to the nose), `phone_tilt` 35 deg; it sets the
   mounted tag positions and the ARKit twist lever arm. Mount check, robot still: `ros2 topic echo
   /phone/imu/data_raw --field linear_acceleration` ~ +8.0 x, +5.6 z (z wrong sign -> `accel_sign:
   -1.0`); turning CCW must give + on x (else `gyro_sign: -1.0`), both in phone_bridge.launch.py.
@@ -214,63 +214,94 @@ Read freely; ask the owner before editing, disabling, restarting, or deleting an
 - Gear ratio: 2:1 now (20T:40T). After the rebuild: 30T:40T = 1.33:1.
   (Only if the ros2_control stack is used: `enc_counts_per_rev` in diffdrive_arduino =
   motor counts per rev × gear ratio.)
-- `wheel_radius` 0.0635 m, `wheel_separation` ≈ 0.206 m (measure after rebuild). The URDF and
-  my_controllers.yaml both use 0.06985 / 0.1895 until measured (see "Robot model").
-- Sensors: LD06 2D LiDAR (on the lidar tower under the arm, scan plane 0.238 m), MPU6050 IMU on Pi I2C bus 1 at 0x68
+- `wheel_radius` 0.0635 m, `wheel_separation` 0.176 m (CAD v17: tyre centres y +-0.088). The URDF,
+  gazebo_control.xacro and my_controllers.yaml all use these (see "Robot model").
+- Sensors: LD06 2D LiDAR (on the lidar tower at the REAR TOP under the arm, scan plane 0.268 m; the
+  spray tank hides +-27 deg straight ahead, see "Robot model"), MPU6050 IMU on Pi I2C bus 1 at 0x68
   (`scripts/mpu6050_node.py` -> `/imu/data_raw`; yaw rate fused with wheel odometry by the
   robot_localization EKF, `config/ekf.yaml`, which publishes `/odom` and odom->base_link;
   diff_cont has `enable_odom_tf: false` on the real robot, true in Gazebo), camera = the iPhone on
   the front phone mount (see "Phone sensors"; the old Pi cam / webcam plan and its `camera_link`
   frames are no longer in the URDF).
-- Arm: 4 x MG996R servo arm on top of the lidar tower (not wired yet; see "Robot model"). Spray:
-  small 12 V pump switched by a relay.
+- Arm: 4 x MG996R (yaw, shoulder, elbow, wrist pitch) + a wrist roll servo, on top of the rear lidar
+  tower (not wired yet; see "Robot model"). Spray: small 12 V pump switched by a relay; tank (3.6 kg
+  full) on the top frame at the front.
 - Power: 12 V Li-ion pack, 5 V for Pi. Battery not monitored yet.
 - Frame: 2020/4020 aluminium extrusion, 360 × 240 × 160 mm, based on the "NXP robot platform" CAD.
 
-## Robot model (URDF v2, 2026-10-18; source ~/weedbot_urdf on the VM)
-- `description/robot.urdf.xacro` includes `weedbot_properties.xacro` (ALL measurements in one file;
-  values marked MEASURE are CAD estimates to check with a tape), `weedbot_body.xacro` (frame, rear
-  wheels, caster, electronics box, lidar tower + LD06, phone mount), `weedbot_arm.xacro` (arm), plus
-  `imu.xacro`, `ros2_control.xacro` / `gazebo_control.xacro`, and sim-only `imu_sim.xacro`,
-  `lidar_sim.xacro` (Gazebo LD06 on laser_frame -> /scan), `sim_ground_truth.xacro`. Kept on disk
-  but NOT included: `robot_core.xacro`, `lidar.xacro`, `camera.xacro`, `phone_mount.xacro`.
-- `base_link` is ON THE GROUND under the centre of the rear axle (before: at axle height, 0.05 up);
-  `base_footprint` = the same point. Heights above the ground: deck (top of the rails) 0.0905,
-  phone camera 0.1485 (x 0.236), caster stem top 0.216, LD06 bottom 0.215 -> scan plane
-  (laser_frame) 0.238 at x 0.13, arm plate underside 0.262, spray_tip 0.633 with the arm straight up.
-  Frame x -0.12 .. 0.28, 0.22 wide; caster swivel axis x 0.248.
+## Robot model (CAD v17 measurements, 2026-10-18; FreeCAD "project 101 v17")
+- `description/robot.urdf.xacro` includes `weedbot_properties.xacro` (ALL measurements in one file,
+  from CAD v17; still MEASURE: IMU position (imu.xacro), masses other than the tank, caster trail,
+  arm yaw range), `weedbot_body.xacro` (bottom + top frame, body shell, rear wheels, caster,
+  electronics plate, spray tank, lidar tower + LD06, phone mount), `weedbot_arm.xacro` (arm), plus
+  `imu.xacro`, `ros2_control.xacro` / `gazebo_control.xacro` (wheel values from the properties), and
+  sim-only `imu_sim.xacro`, `lidar_sim.xacro` (Gazebo LD06 on laser_frame -> /scan),
+  `sim_ground_truth.xacro`. Kept on disk but NOT included: `robot_core.xacro`, `lidar.xacro`,
+  `camera.xacro`, `phone_mount.xacro`. (URDF v2 from ~/weedbot_urdf, commit a01c802, had CAD guesses.)
+- `base_link` is ON THE GROUND under the centre of the rear axle; `base_footprint` = the same point.
+  Layout (x forward from the rear axle): bottom frame x -0.067..0.293, 0.14 wide; top frame same x,
+  0.24 wide; body shell x -0.073..0.299, 0.316 wide, z 0.04..0.237; wheels r 0.0635 at y +-0.088;
+  caster swivel axis x 0.419 on a bracket in front of the frame = the NOSE (wheel trailing 0.037, so
+  the nose reaches x 0.52); spray tank x 0.198..0.294, 0.239 wide, on the top frame at the front,
+  sump below; lidar tower at the REAR TOP: column x 0.044 IN FRONT of the LD06 (x -0.036), arm yaw
+  axis straight above the LD06.
+- Heights above the ground: deck (top of the bottom rails) 0.0905, top frame 0.2105..0.2305, top cover
+  0.2366 (= top of the body shell = tower foot), phone camera 0.148 (x 0.224, y +0.050), caster swivel
+  0.152, stem top 0.221, LD06 bottom 0.2446 -> scan plane (laser_frame) 0.268, tank 0.2305..0.354
+  (crosses the scan plane), arm plate underside 0.314, spray_tip 0.721 with the arm straight up.
 - Names kept: base_link, base_footprint, laser_frame, left_wheel_joint, right_wheel_joint, imu_link,
   phone_optical, phone_link. `camera_link` / `camera_link_optical` are GONE (the phone is the camera):
   the uncommitted W1 `fake_weed_detector.py` still uses camera_link_optical + /camera/image_raw from
   the old Gazebo camera, so W1 needs phone_optical + a simulated phone camera before it runs again;
   the `sim_camera` launch arg is still accepted but does nothing.
-- Arm joints `arm_base_yaw`, `shoulder_pitch`, `elbow_pitch`, `wrist_pitch` (MG996R, -90..+90 deg,
-  0 = straight up, + pitch tilts forward, + yaw = counterclockwise seen from above; checked: shoulder
-  +0.5 rad moves spray_tip 0.15 m forward). In SIM they are FIXED at 0: with no simulated servos the
-  revolute joints let the arm collapse through the LiDAR plane. Add a Gazebo position controller
-  before moving the arm in sim. `scripts/arm_joint_state_stub.py` (`config/arm_joint_state_stub.yaml`,
-  started by launch_robot and launch_sim) publishes them at 0 on /joint_states at 5 Hz, plus the real
-  caster's `caster_swivel_joint` / `caster_wheel_joint` (TF only; ignored in sim, where the caster is
-  a fixed frictionless ball). The servo driver replaces the arm part later (same joint names).
+- Arm joints `arm_base_yaw`, `shoulder_pitch`, `elbow_pitch`, `wrist_pitch`, `wrist_roll` (axis to axis
+  0.0707 / 0.100 / 0.100 / 0.131; wrist_roll sits 0.0737 along the last link, axis along the link,
+  child link `nozzle` -> `spray_tip`). -90..+90 deg each, 0 = straight up, + pitch tilts forward,
+  + yaw = counterclockwise seen from above. The yaw servo hangs under the plate 0.0224 behind the
+  axis and drives a gear (yaw joint stays at arm_x); drawn as a full MG996R box it overlaps the
+  LD06's top rear edge: check the clearance to the spinning LD06 head in CAD. In SIM the arm joints
+  are FIXED at 0: with no simulated servos the revolute joints let the arm collapse through the LiDAR
+  plane. Add a Gazebo position controller before moving the arm in sim.
+  `scripts/arm_joint_state_stub.py` (`config/arm_joint_state_stub.yaml`, started by launch_robot and
+  launch_sim) publishes the five arm joints at 0 on /joint_states at 5 Hz, plus the real caster's
+  `caster_swivel_joint` / `caster_wheel_joint` (TF only; ignored in sim, where the caster is a fixed
+  frictionless ball). The servo driver replaces the arm part later (same joint names).
   RViz + sliders: `ros2 launch my_bot view_robot.launch.py` (`config/view_robot.rviz`, fixed frame
   base_link; `sim_mode:=true` for the sim variant).
+- RViz (Humble) draws ALL visuals of a link in the colour of the link's FIRST visual (inline colours
+  do not help). A part with a different colour needs its own fixed link (top_cover, caster_socket,
+  phone_body, arm_yaw_servo, turret_servo, wrist_servos, shoulder_servo, elbow_servo).
 - `rsp.launch.py` strips XML comments from robot_description, and every launch passes it as
   `ParameterValue(..., value_type=str)`: gazebo_ros2_control hands the URDF to its controller manager
   as a `--param robot_description:=...` argument that is parsed as YAML, so a "word: " in any comment
   stopped the wheel controllers (and launch_sim / launch_robot did not start at all from commit
   3b156e3, the phone_mount.xacro comment, until the URDF v2 commit).
-- Sim test 2026-10-18 (room.world, headless, domain 42): spawn and controllers OK; keyboard 0.1 m/s
-  for 3 s -> both wheel joints +3.43 rad, Gazebo truth 0.240 m straight ahead (governor cap 0.08 m/s:
-  no map loaded = unknown obstacles), EKF and wheel odometry 0.240 m, < 0.2 deg turn. Raw /scan: the
-  whole room + 20 returns at 0.060 m straight behind = the tower column (0.02 wide, 0.06 m behind the
-  laser; the CAD estimate was ~14 deg), removed by scan_self_filter -> one 20 deg blind sector at the
-  back in /scan_filtered.
-- NOT updated yet, SAFETY: the Nav2 footprint (nav2_params: 0.30 x 0.45, front x 0.20), the
-  safety.yaml zones and safety_state outline (front bumper x 0.20, y +-0.225), the scan_self_filter
-  box (x -0.13 .. 0.23) and the coverage clearances still describe the OLD robot. The rebuilt robot is
-  longer (frame front 0.28, caster ~0.31) and narrower (0.22): the stop band now starts inside the
-  frame and ends only 0.02 m in front of it. Update them from the MEASURED robot and re-run the person
-  tests before the rebuilt robot drives (teleop or Nav2).
+- LiDAR self-hits: the spray tank is in the scan plane 0.23..0.33 m ahead of the LD06 and hides
+  +-27 deg straight ahead; the tower column (0.06 m in front of the LD06) is inside that shadow.
+  `scan_self_filter.py` box (safety.yaml) x -0.11..0.53, y +-0.16 in base_link (the requested
+  laser_filters LaserScanBoxFilter, z 0..0.6; laser_filters is not installed, so the existing node does
+  the same in 2D). Since 2026-10-18 it sets self-hits to NaN, not +inf: the costmaps use inf_is_valid,
+  so +inf rays cleared the costmap out to 3 m straight through the tank's shadow.
+- Nav2 footprint (both costmaps, robot_radius off, padding 0.01): [[0.520, 0.101], [0.299, 0.158],
+  [-0.073, 0.158], [-0.108, 0.080], [-0.108, -0.080], [-0.073, -0.158], [0.299, -0.158],
+  [0.520, -0.101]]. Farthest point 0.53 m (the caster nose) = the circle swept turning on the spot, so
+  local inflation 0.55 and coverage clearances 0.288 m straight / 0.66 m in turns. With the footprint
+  in the global costmap, SmacPlanner2D only keeps the inscribed radius (0.118 m) from obstacles and
+  may plan through gaps narrower than the robot (RPP then stops it); robot_radius 0.168 there would
+  avoid that. safety.yaml: StopBand x 0.53..0.62, SlowCorridor x 0.53..0.92 (both y +-0.16),
+  stop_zone x -0.148..0.56, y +-0.198.
+- SAFETY, BLIND AHEAD (sim 2026-10-18): the zones in front of the robot lie inside the tank's shadow.
+  A sim person (0.4 m cylinder) straight ahead at 0.75 m (near edge in the StopBand) or 1.5 m gave
+  0 LiDAR returns, even on the raw /scan; the same person 0.55 m to the left was seen (20 returns).
+  So the collision monitor, /safety_state and the local costmap cannot see obstacles in the robot's
+  path, and the 2026-10-04 person tests do not apply to this robot. Do not drive the v17 robot forward
+  under Nav2/coverage (or by teleop without someone watching) until something sees ahead: the LD06
+  above the tank, a lower tank, or a forward sensor (phone depth as a collision monitor pointcloud
+  source, a ToF/ultrasonic); then re-run the person tests.
+- Sim test 2026-10-18 v17 (room.world, headless, domain 42, not driven): spawn and controllers OK,
+  robot level (pitch -0.13 deg); raw /scan 54 self-hit rays -27..+27 deg at 0.060..0.262 m (column,
+  tank) = one 54 deg blind sector straight ahead, nothing behind; /scan_filtered: those 54 are NaN.
+  (The v2 drive test, 0.240 m straight with EKF = wheels, used the old wheel values.)
 
 ## Software stack
 - SLAM Toolbox for mapping, AMCL for localization, Nav2 for navigation (all working indoors).
@@ -284,7 +315,7 @@ Read freely; ask the owner before editing, disabling, restarting, or deleting an
 mpu6050_node + ekf_node -> coverage_planner_node -> camera (v4l2_camera) -> weed_detector_node ->
 weed_localization_node -> weed_manager_node -> mission_executor -> arm_planner_node -> precision_alignment_node ->
 spray_controller_node. TF frames: map, odom, base_link, base_footprint, laser_frame, imu_link,
-phone_optical, phone_link, arm_base, arm_turret, upper_arm, forearm, wrist, spray_tip.
+phone_optical, phone_link, arm_base, arm_turret, upper_arm, forearm, wrist, nozzle, spray_tip.
 
 ## Roadmap and current status
 - Phase 1 (POSTPONED, resume after Phase 3): camera publishing + intrinsic calibration +
@@ -310,7 +341,8 @@ phone_optical, phone_link, arm_base, arm_turret, upper_arm, forearm, wrist, spra
   Blocked path: waits blocked_wait (5 s), re-plans around if there is room, else skips 1 m into
   a revisit queue retried at the end; the final report (log + latched `/coverage/report`) lists
   anything still skipped with its map location. Needs python3-scipy (apt) on the Pi.
-  Person tests 2026-10-04 (room world, medium, 0.15 m/s top speed, path 0.03 m further from walls):
+  Person tests 2026-10-04 (OLD robot geometry, not valid for v17 - see "Robot model") (room world,
+  medium, 0.15 m/s top speed, path 0.03 m further from walls):
   0 contacts. Person standing on the path: stopped 0.10 m short. Person stepping in 0.20 m in
   front of the bumper (verified) at 0.13 m/s: stopped 0.09 m short. 85% covered in 9.8 min;
   4 false stops (couch corner near the start, top wall, and two beside the table where the saved
@@ -346,10 +378,10 @@ Hardware is on the bench, not in the chassis; rebuild = caster in front, 30T:40T
 - (c) IMU `axis_signs` (imu_ekf.launch.py) and imu.xacro pose to verify after mounting (imu_z is
   measured from the GROUND since base_link moved there on 2026-10-18; now 0.10).
 - (d) Occasional IMU I2C read errors when the motors start (check wiring/power/noise).
-- DONE 2026-10-18: the URDF (weedbot_*.xacro) uses the controller's wheel values (r 0.06985, sep
-  0.1895) and the sim-only override in `config/gaz_ros2_ctl_use_sim.yaml` is deleted, so sim and
-  real share one set. Still to MEASURE (hardware notes say 0.0635 / ~0.206, the CAD guessed sep
-  0.300): change `weedbot_properties.xacro` AND `my_controllers.yaml` together.
+- DONE 2026-10-18: one set of wheel values for sim and real, from CAD v17: r 0.0635, sep 0.176 in
+  `weedbot_properties.xacro` AND `my_controllers.yaml` (gazebo_control.xacro reads the properties;
+  the sim-only override in `config/gaz_ros2_ctl_use_sim.yaml` is deleted). Check them on the real
+  robot with a 1 m / 360 deg drive; change both files together.
 
 ## Rules for automated tests (Claude) on the VM
 - Every headless test runs isolated from the owner's sessions: `ROS_DOMAIN_ID=42`,
@@ -378,8 +410,8 @@ Hardware is on the bench, not in the chassis; rebuild = caster in front, 30T:40T
 - Every motion command goes through the collision monitor (sim and robot):
   twist_mux -> `/cmd_vel_mux` -> collision_monitor -> `/diff_cont/cmd_vel_unstamped`. Never
   publish straight to `/diff_cont/cmd_vel_unstamped`. Zones in `config/safety.yaml`: stop band
-  from the front bumper to 0.10 m ahead (0.40 m wide); slow (40 %) corridor 0.40 m ahead of the
-  bumper. Full outline+0.10 m boxes stopped the robot beside every wall; Nav2 "approach" mode
+  from the caster nose (0.52) to 0.10 m ahead (0.32 m wide); slow (40 %) corridor 0.40 m ahead of
+  the nose. v17 robot: both are BLIND (spray tank in the scan plane, see "Robot model"). Full outline+0.10 m boxes stopped the robot beside every wall; Nav2 "approach" mode
   never triggered in this Humble version. Side/rear contact while turning is left to RPP's
   footprint check. No LiDAR data for 1 s -> stop. Do not remove or bypass it.
   `/safety_state`: stop = anything within outline + 0.04 m, e-stop or no scan; slow = slow corridor

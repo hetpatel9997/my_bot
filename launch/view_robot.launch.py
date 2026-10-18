@@ -1,4 +1,4 @@
-"""Shows the WeedBot model in RViz with sliders for the four arm servos and the caster.
+"""Shows the WeedBot model in RViz with sliders for the five arm joints and the caster.
    ros2 launch my_bot view_robot.launch.py            (real-robot geometry)
    ros2 launch my_bot view_robot.launch.py sim_mode:=true
 """

@@ -3,7 +3,10 @@
 scan_self_filter.py  -  removes LiDAR returns that hit the robot itself.
 
 Subscribes /scan, sets every reading whose point lies inside the robot outline plus a margin
-(in base_link) to +inf ("no return"), and publishes /scan_filtered. Everything else (costmaps,
+(in base_link) to NaN ("no valid reading", like laser_filters' LaserScanBoxFilter), and publishes
+/scan_filtered. Not +inf: the costmaps run with inf_is_valid, which turns +inf into a free-space
+ray out to 3 m, so every self-hit ray would erase real obstacles behind the robot part it hit
+(with the v17 spray tank: everything in the ~54 deg cone straight ahead). Everything else (costmaps,
 AMCL, SLAM, collision monitor, /safety_state) uses /scan_filtered, so the robot's own chassis,
 post or wheels never look like an obstacle (in the sim they made the collision monitor stop
 the robot permanently). If this node dies, /scan_filtered stops and the collision monitor
@@ -25,7 +28,7 @@ from tf2_ros import Buffer, TransformListener
 class SelfFilter(Node):
     def __init__(self):
         super().__init__('scan_self_filter')
-        self.declare_parameter('box', [-0.13, 0.23, -0.255, 0.255])
+        self.declare_parameter('box', [-0.11, 0.53, -0.16, 0.16])
         self.declare_parameter('base_frame', 'base_link')
         self.box = [float(v) for v in self.get_parameter('box').value]
         self.base = self.get_parameter('base_frame').value
@@ -56,7 +59,7 @@ class SelfFilter(Node):
         x, y = lx + r * self.cos, ly + r * self.sin
         x0, x1, y0, y1 = self.box
         own = np.isfinite(r) & (x > x0) & (x < x1) & (y > y0) & (y < y1)
-        r[own] = np.inf
+        r[own] = np.nan
         if own.any() and self.removed == 0:
             self.get_logger().info(f'Filtering {int(own.sum())} self-hit returns per scan')
         self.removed += int(own.sum())

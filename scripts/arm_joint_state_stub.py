@@ -2,7 +2,7 @@
 """
 arm_joint_state_stub.py  -  placeholder /joint_states for joints that have no driver yet.
 
-The 4-servo arm (arm_base_yaw, shoulder_pitch, elbow_pitch, wrist_pitch) has no servo driver yet,
+The arm (arm_base_yaw, shoulder_pitch, elbow_pitch, wrist_pitch, wrist_roll) has no servo driver yet,
 and nothing measures the real caster's swivel/wheel angles. robot_state_publisher only publishes
 TF for a moving joint once it gets a value for it, so without this node there is no TF for
 spray_tip (and, on the real robot, for the caster links). This node publishes those joints at
@@ -22,8 +22,8 @@ from sensor_msgs.msg import JointState
 class JointStateStub(Node):
     def __init__(self):
         super().__init__('arm_joint_state_stub')
-        self.declare_parameter('joints', ['arm_base_yaw', 'shoulder_pitch', 'elbow_pitch', 'wrist_pitch'])
-        self.declare_parameter('positions', [0.0, 0.0, 0.0, 0.0])
+        self.declare_parameter('joints', ['arm_base_yaw', 'shoulder_pitch', 'elbow_pitch', 'wrist_pitch', 'wrist_roll'])
+        self.declare_parameter('positions', [0.0, 0.0, 0.0, 0.0, 0.0])
         self.declare_parameter('rate_hz', 5.0)
         self.joints = list(self.get_parameter('joints').value)
         self.positions = [float(v) for v in self.get_parameter('positions').value]

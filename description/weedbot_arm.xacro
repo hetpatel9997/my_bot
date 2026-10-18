@@ -1,13 +1,16 @@
 <?xml version="1.0"?>
 <!--
-  4-servo sprayer arm (MG996R x4) on top of the lidar tower.
-    arm_base_yaw   : servo 1, turns the whole arm about the vertical axis (above the lidar)
+  Sprayer arm on top of the lidar tower (rear top of the robot): 4 x MG996R + a wrist roll.
+    arm_base_yaw   : servo 1, hangs under the base plate behind the axis and turns the arm through
+                     a gear, about the vertical axis above the lidar (yaw range: MEASURE)
     shoulder_pitch : servo 2
     elbow_pitch    : servo 3
-    wrist_pitch    : servo 4, carries the sprayer nozzle (link spray_tip = where the spray leaves)
-  Zero position = arm pointing straight up, folded over the robot. Positive pitch tilts forward.
-  Each joint: -90..+90 deg (the servo's 180 deg travel centred). Change arm_l1..l4 in
-  weedbot_properties.xacro to your real link lengths (axis to axis).
+    wrist_pitch    : servo 4
+    wrist_roll     : servo 5, wrist_roll_z along the last link, turns the nozzle about the link
+                     (link spray_tip = where the spray leaves)
+  Zero position = arm pointing straight up. Positive pitch tilts forward.
+  Each joint: -90..+90 deg (the servo's 180 deg travel centred). Link lengths (axis to axis) are in
+  weedbot_properties.xacro (arm_l1..l4, wrist_roll_z, CAD v17). Masses: MEASURE.
   In RViz, move it with joint_state_publisher_gui; on the robot the servo driver publishes the same
   joint names on /joint_states.
 -->
@@ -15,7 +18,7 @@
 
   <!-- Gazebo has no servos for the arm yet: with revolute joints the arm collapsed under gravity
        (forearm hanging through the LiDAR scan plane) while TF still showed it straight up. In sim
-       the four joints are fixed at 0 (= what arm_joint_state_stub.py reports); on the robot they are
+       the five joints are fixed at 0 (= what arm_joint_state_stub.py reports); on the robot they are
        servo joints. Give them a simulated position controller before moving the arm in sim. -->
   <xacro:if value="$(arg sim_mode)"><xacro:property name="arm_joint_type" value="fixed"/></xacro:if>
   <xacro:unless value="$(arg sim_mode)"><xacro:property name="arm_joint_type" value="revolute"/></xacro:unless>
@@ -52,7 +55,7 @@
     </link>
   </xacro:macro>
 
-  <!-- base plate on the tower, directly above the lidar -->
+  <!-- base plate on the tower, directly above the lidar; the yaw servo hangs under it -->
   <joint name="arm_base_joint" type="fixed">
     <parent link="base_link"/>
     <child link="arm_base"/>
@@ -60,11 +63,20 @@
   </joint>
   <link name="arm_base">
     <visual><geometry><cylinder radius="${arm_plate_r}" length="${arm_plate_t}"/></geometry><material name="petg_blue"/></visual>
-    <!-- the plate reaches back to the column -->
-    <visual><origin xyz="${(tower_x-arm_x)/2} 0 0"/><geometry><box size="${arm_x-tower_x} ${tower_w+0.02} ${arm_plate_t}"/></geometry><material name="petg_blue"/></visual>
+    <!-- the plate reaches forward to the column -->
+    <visual><origin xyz="${(tower_x-arm_x)/2} 0 0"/><geometry><box size="${fabs(arm_x-tower_x)} ${tower_w+0.02} ${arm_plate_t}"/></geometry><material name="petg_blue"/></visual>
     <collision><geometry><cylinder radius="${arm_plate_r}" length="${arm_plate_t}"/></geometry></collision>
     <inertial><mass value="0.15"/><xacro:cyl_inertia m="0.15" r="${arm_plate_r}" h="${arm_plate_t}"/></inertial>
   </link>
+
+  <!-- yaw servo (servo 1) under the plate, arm_yaw_servo_dx behind the axis, shaft up into the gear
+       (drawn as a full MG996R box hanging from the plate: check the clearance to the LD06 in CAD) -->
+  <joint name="arm_yaw_servo_joint" type="fixed">
+    <parent link="arm_base"/>
+    <child link="arm_yaw_servo"/>
+    <origin xyz="${arm_yaw_servo_dx} 0 ${-arm_plate_t/2-servo_z/2}"/>
+  </joint>
+  <link name="arm_yaw_servo"><xacro:servo_visual xyz="0 0 0" rpy="0 0 0"/></link>
 
   <!-- servo 1: yaw -->
   <joint name="arm_base_yaw" type="${arm_joint_type}">
@@ -75,11 +87,15 @@
     <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
   </joint>
   <link name="arm_turret">
-    <!-- servo 1 body sits under the plate inside the tower cut-out; the turret disc on top -->
-    <visual><origin xyz="0 0 0.004"/><geometry><cylinder radius="0.030" length="0.008"/></geometry><material name="servo"/></visual>
-    <xacro:servo_visual xyz="0 0 ${arm_l1-servo_z/2+0.005}" rpy="0 0 0"/>
     <visual><origin xyz="0 0 ${arm_l1/2}"/><geometry><box size="${link_w} ${link_w} ${arm_l1}"/></geometry><material name="petg_blue"/></visual>
     <inertial><origin xyz="0 0 ${arm_l1/2}"/><mass value="0.09"/><xacro:box_inertia m="0.09" x="${servo_x}" y="${servo_y}" z="${arm_l1}"/></inertial>
+  </link>
+
+  <!-- turret disc on the plate and servo 2 (shoulder) body at the top -->
+  <joint name="turret_servo_joint" type="fixed"><parent link="arm_turret"/><child link="turret_servo"/><origin xyz="0 0 0"/></joint>
+  <link name="turret_servo">
+    <visual><origin xyz="0 0 0.004"/><geometry><cylinder radius="0.030" length="0.008"/></geometry><material name="servo"/></visual>
+    <xacro:servo_visual xyz="0 0 ${arm_l1-servo_z/2+0.005}" rpy="0 0 0"/>
   </link>
 
   <!-- servo 2: shoulder -->
@@ -102,7 +118,7 @@
   </joint>
   <xacro:arm_link name="forearm" length="${arm_l3}" mass="0.07"/>
 
-  <!-- servo 4: wrist, carries the nozzle -->
+  <!-- servo 4: wrist pitch -->
   <joint name="wrist_pitch" type="${arm_joint_type}">
     <parent link="forearm"/>
     <child link="wrist"/>
@@ -111,17 +127,38 @@
     <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
   </joint>
   <link name="wrist">
+    <visual><origin xyz="0 0 ${wrist_roll_z/2}"/><geometry><box size="${link_w} ${link_w} ${wrist_roll_z}"/></geometry><material name="petg_blue"/></visual>
+    <collision><origin xyz="0 0 ${wrist_roll_z/2}"/><geometry><box size="${servo_x} ${servo_y} ${wrist_roll_z+servo_z}"/></geometry></collision>
+    <inertial><origin xyz="0 0 ${wrist_roll_z/2}"/><mass value="0.1"/><xacro:box_inertia m="0.1" x="${servo_x}" y="${servo_y}" z="${wrist_roll_z}"/></inertial>
+  </link>
+
+  <!-- servo 4 body at the wrist pitch axis and servo 5 (wrist roll) body, shaft along the link at the
+       roll joint (size approximate), visual only -->
+  <joint name="wrist_servos_joint" type="fixed"><parent link="wrist"/><child link="wrist_servos"/><origin xyz="0 0 0"/></joint>
+  <link name="wrist_servos">
     <xacro:servo_visual xyz="0 0 0" rpy="0 0 0"/>
-    <visual><origin xyz="0 0 ${arm_l4/2}"/><geometry><cylinder radius="0.006" length="${arm_l4}"/></geometry><material name="alu"/></visual>
-    <collision><origin xyz="0 0 ${arm_l4/2}"/><geometry><box size="${servo_x} ${servo_y} ${arm_l4+servo_z}"/></geometry></collision>
-    <inertial><origin xyz="0 0 ${arm_l4/2}"/><mass value="0.08"/><xacro:box_inertia m="0.08" x="${servo_x}" y="${servo_y}" z="${arm_l4}"/></inertial>
+    <visual><origin xyz="0 0 ${wrist_roll_z-servo_x/2}"/><geometry><box size="${servo_y} ${servo_z} ${servo_x}"/></geometry><material name="servo"/></visual>
+  </link>
+
+  <!-- servo 5: wrist roll, turns the nozzle about the link axis -->
+  <joint name="wrist_roll" type="${arm_joint_type}">
+    <parent link="wrist"/>
+    <child link="nozzle"/>
+    <origin xyz="0 0 ${wrist_roll_z}"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
+  </joint>
+  <link name="nozzle">
+    <visual><origin xyz="0 0 ${(arm_l4-wrist_roll_z)/2}"/><geometry><cylinder radius="0.006" length="${arm_l4-wrist_roll_z}"/></geometry><material name="alu"/></visual>
+    <collision><origin xyz="0 0 ${(arm_l4-wrist_roll_z)/2}"/><geometry><cylinder radius="0.006" length="${arm_l4-wrist_roll_z}"/></geometry></collision>
+    <inertial><origin xyz="0 0 ${(arm_l4-wrist_roll_z)/2}"/><mass value="0.02"/><xacro:cyl_inertia m="0.02" r="0.006" h="${arm_l4-wrist_roll_z}"/></inertial>
   </link>
 
   <!-- where the spray comes out, z pointing along the nozzle -->
   <joint name="spray_tip_joint" type="fixed">
-    <parent link="wrist"/>
+    <parent link="nozzle"/>
     <child link="spray_tip"/>
-    <origin xyz="0 0 ${arm_l4}"/>
+    <origin xyz="0 0 ${arm_l4-wrist_roll_z}"/>
   </joint>
   <link name="spray_tip">
     <visual><geometry><sphere radius="0.006"/></geometry><material name="petg_orange"/></visual>

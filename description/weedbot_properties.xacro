@@ -4,75 +4,110 @@
   phone mount, Gazebo) reads from here. Units: metres and radians. Frame: x forward, y left, z up.
   base_link = on the GROUND, under the centre of the rear (drive) axle.
 
-  Values marked MEASURE are estimates from the CAD/STEP and must be checked with a tape measure.
+  Source: FreeCAD "project 101 v17" (2026-10-18). Values still marked MEASURE are estimates
+  (IMU position in imu.xacro, masses other than the tank, caster trail, arm yaw range).
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- drive wheels (5 inch) -->
-  <!-- radius / separation = the diff_cont values in config/my_controllers.yaml (2026-10-18). Both
-       MEASURE: CLAUDE.md lists 5 in wheels (0.0635) and ~0.206 separation, the CAD estimate was 0.300.
-       Change them here AND in my_controllers.yaml together. -->
-  <xacro:property name="wheel_radius"      value="0.06985"/>
+  <!-- radius / separation must equal diff_cont in config/my_controllers.yaml (and wheel_separation /
+       wheel_diameter in gazebo_control.xacro): change them together. -->
+  <xacro:property name="wheel_radius"      value="0.0635"/>
   <xacro:property name="wheel_width"       value="0.032"/>
-  <xacro:property name="wheel_separation"  value="0.1895"/>  <!-- MEASURE: centre of left tyre to centre of right tyre; must equal diff_cont wheel_separation -->
-  <xacro:property name="wheel_mass"        value="0.25"/>
+  <xacro:property name="wheel_separation"  value="0.176"/>   <!-- tyre centres at y = +-0.088 -->
+  <xacro:property name="wheel_mass"        value="0.25"/>    <!-- MEASURE -->
   <!-- joint names must match ros2_control / diffdrive_arduino -->
   <xacro:property name="left_wheel_joint"  value="left_wheel_joint"/>
   <xacro:property name="right_wheel_joint" value="right_wheel_joint"/>
 
-  <!-- aluminium frame (NXP platform), relative to the rear axle -->
-  <xacro:property name="frame_x_rear"   value="-0.12"/>    <!-- MEASURE: rear end of the frame behind the axle -->
-  <xacro:property name="frame_x_front"  value="0.28"/>     <!-- MEASURE: front end (front cross rail outer face) -->
-  <xacro:property name="frame_width"    value="0.22"/>     <!-- MEASURE: outside width of the side rails -->
-  <xacro:property name="frame_bottom_z" value="0.0705"/>   <!-- underside of the rails above the ground (you said ~3 in) -->
+  <!-- bottom aluminium frame (NXP platform), relative to the rear axle -->
+  <xacro:property name="frame_x_rear"   value="-0.0668"/>
+  <xacro:property name="frame_x_front"  value="0.2932"/>
+  <xacro:property name="frame_width"    value="0.140"/>    <!-- outside width of the side rails -->
+  <xacro:property name="frame_bottom_z" value="0.0705"/>   <!-- underside of the rails above the ground -->
   <xacro:property name="frame_top_z"    value="0.0905"/>   <!-- top of the rails (20 mm extrusion) = the "deck" -->
-  <xacro:property name="frame_mass"     value="2.5"/>
+  <xacro:property name="frame_mass"     value="2.5"/>      <!-- MEASURE -->
 
-  <!-- front caster (Krowne 5 inch stem caster, side-mounted socket bracket) -->
-  <xacro:property name="caster_x"          value="0.248"/>  <!-- swivel axis, centre of the front cross rail -->
-  <xacro:property name="caster_mount_z"    value="0.216"/>  <!-- top of the stem = 8.5 in above the ground -->
-  <xacro:property name="caster_wheel_radius" value="0.0635"/>
-  <xacro:property name="caster_wheel_width"  value="0.032"/>
-  <xacro:property name="caster_trail"      value="0.040"/>  <!-- MEASURE: swivel axis to wheel axle, horizontal -->
+  <!-- top frame (same x range as the bottom frame) and the cover plate on it -->
+  <xacro:property name="top_frame_width"    value="0.240"/>
+  <xacro:property name="top_frame_bottom_z" value="0.2105"/>
+  <xacro:property name="top_frame_top_z"    value="0.2305"/>
+  <xacro:property name="top_cover_z"        value="0.2366"/>  <!-- top of the cover plate -->
 
-  <!-- lidar tower + LD06 (lidar sits under the raised arm base, scan plane above everything else) -->
-  <xacro:property name="tower_x"        value="0.05"/>      <!-- column centre, behind the lidar -->
-  <xacro:property name="tower_w"        value="0.020"/>     <!-- column width (y), the only thing in the lidar's view: ~14 deg blind sector at the back -->
+  <!-- outer body shell (looks + collision; the Nav2 footprint follows it, plus the caster nose) -->
+  <xacro:property name="body_x_rear"   value="-0.0728"/>
+  <xacro:property name="body_x_front"  value="0.2992"/>
+  <xacro:property name="body_width"    value="0.316"/>
+  <xacro:property name="body_bottom_z" value="0.040"/>
+  <xacro:property name="body_top_z"    value="0.2366"/>
+  <xacro:property name="body_mass"     value="0.5"/>      <!-- MEASURE -->
+
+  <!-- front caster (Krowne 5 inch stem caster) on a bracket in front of the frame: the robot's nose -->
+  <xacro:property name="caster_x"            value="0.419"/>   <!-- swivel axis -->
+  <xacro:property name="caster_mount_z"      value="0.2214"/>  <!-- top of the stem -->
+  <xacro:property name="caster_swivel_z"     value="0.1524"/>  <!-- swivel bearing -->
+  <xacro:property name="caster_wheel_radius" value="0.0631"/>
+  <xacro:property name="caster_wheel_width"  value="0.0305"/>
+  <xacro:property name="caster_trail"        value="0.037"/>   <!-- MEASURE (estimate): swivel axis to wheel axle, horizontal -->
+
+  <!-- printed gear cheeks beside the axle gears (visual only) -->
+  <xacro:property name="cheek_y" value="0.0235"/>
+
+  <!-- lidar tower at the REAR TOP, standing on the top cover. The LD06 sits on a shelf on the BACK of
+       the column (column in front of the lidar), under the arm base plate. -->
+  <xacro:property name="tower_x"        value="0.0436"/>    <!-- column centre, in front of the lidar -->
+  <xacro:property name="tower_w"        value="0.020"/>     <!-- column width (y) -->
   <xacro:property name="tower_d"        value="0.040"/>     <!-- column depth (x) -->
-  <xacro:property name="lidar_x"        value="0.13"/>      <!-- LD06 centre, in front of the column -->
-  <xacro:property name="lidar_base_z"   value="0.215"/>     <!-- bottom of the LD06: scan plane (base + 0.023) must clear the highest
-                                                                  thing on the robot = the caster stem top (0.216) and the phone (0.16).
-                                                                  If you cut the caster stem down to ~0.16, lower this to 0.170 -->
+  <xacro:property name="tower_base_z"   value="0.2366"/>    <!-- column foot = top cover -->
+  <xacro:property name="lidar_x"        value="-0.0364"/>   <!-- LD06 centre -->
+  <xacro:property name="lidar_base_z"   value="0.2446"/>    <!-- bottom of the LD06; scan plane = base + lidar_scan_dz = 0.2676 -->
   <xacro:property name="lidar_dia"      value="0.0386"/>
   <xacro:property name="lidar_h"        value="0.035"/>
   <xacro:property name="lidar_scan_dz"  value="0.023"/>     <!-- LD06 optical centre above its bottom face -->
   <xacro:property name="lidar_frame"    value="laser_frame"/>   <!-- must match the ldlidar driver frame_id -->
   <xacro:property name="shelf_t"        value="0.005"/>
 
-  <!-- robotic arm: 4 x MG996R (40.7 x 19.7 x 42.9 mm, 180 deg) -->
+  <!-- spray tank on the top frame at the front, with a sump below it (top of the sump = tank_z0).
+       It is in the LiDAR scan plane: ~54 deg blind sector straight ahead. -->
+  <xacro:property name="tank_x0"   value="0.198"/>
+  <xacro:property name="tank_x1"   value="0.294"/>
+  <xacro:property name="tank_w"    value="0.239"/>
+  <xacro:property name="tank_z0"   value="0.2305"/>
+  <xacro:property name="tank_z1"   value="0.3544"/>
+  <xacro:property name="sump_x0"   value="0.203"/>
+  <xacro:property name="sump_x1"   value="0.271"/>
+  <xacro:property name="sump_w"    value="0.195"/>
+  <xacro:property name="sump_z0"   value="0.1574"/>
+  <xacro:property name="tank_mass" value="3.6"/>
+
+  <!-- robotic arm: 4 x MG996R pitch/yaw (40.7 x 19.7 x 42.9 mm, 180 deg) + wrist roll -->
   <xacro:property name="arm_x"          value="${lidar_x}"/>   <!-- base yaw axis directly above the lidar -->
-  <xacro:property name="arm_base_z"     value="${lidar_base_z + lidar_h + 0.012}"/>  <!-- plate underside 12 mm above the lidar top -->
+  <xacro:property name="arm_base_z"     value="0.3136"/>     <!-- underside of the arm base plate -->
   <xacro:property name="arm_plate_t"    value="0.006"/>
   <xacro:property name="arm_plate_r"    value="0.060"/>
-  <xacro:property name="arm_l1"         value="0.045"/>     <!-- MEASURE: base plate to shoulder axis -->
-  <xacro:property name="arm_l2"         value="0.140"/>     <!-- MEASURE: shoulder axis to elbow axis -->
-  <xacro:property name="arm_l3"         value="0.120"/>     <!-- MEASURE: elbow axis to wrist axis -->
-  <xacro:property name="arm_l4"         value="0.060"/>     <!-- MEASURE: wrist axis to the spray nozzle tip -->
-  <xacro:property name="servo_limit"    value="${pi/2}"/>   <!-- MG996R: 0..180 deg -> -90..+90 around the centre -->
+  <xacro:property name="arm_yaw_servo_dx" value="-0.0224"/>  <!-- yaw servo under the plate, behind the axis (drives a gear) -->
+  <xacro:property name="arm_l1"         value="0.0707"/>     <!-- base plate to shoulder axis -->
+  <xacro:property name="arm_l2"         value="0.100"/>      <!-- shoulder axis to elbow axis -->
+  <xacro:property name="arm_l3"         value="0.100"/>      <!-- elbow axis to wrist pitch axis -->
+  <xacro:property name="arm_l4"         value="0.131"/>      <!-- wrist pitch axis to the spray nozzle tip -->
+  <xacro:property name="wrist_roll_z"   value="0.0737"/>     <!-- wrist pitch axis to the wrist roll joint, along the link -->
+  <xacro:property name="servo_limit"    value="${pi/2}"/>   <!-- MG996R: 0..180 deg -> -90..+90 around the centre
+                                                                 (MEASURE for arm_base_yaw: its gear changes the range) -->
   <xacro:property name="servo_effort"   value="1.0"/>       <!-- ~11 kg.cm = 1.08 N.m -->
   <xacro:property name="servo_velocity" value="5.0"/>       <!-- rad/s (0.17 s / 60 deg) -->
   <xacro:property name="link_w"         value="0.020"/>
 
-  <!-- phone mount (printed cradle + wedge bracket), on the deck at the front, centred -->
-  <xacro:property name="phone_bracket_x" value="0.20"/>     <!-- MEASURE: rear edge of the WedgeBracket base from the rear axle -->
-  <xacro:property name="phone_xyz"  value="${phone_bracket_x + 0.036} 0.0 ${frame_top_z + 0.058}"/>  <!-- camera position from the mount macro -->
+  <!-- phone mount (printed cradle + wedge bracket) on the deck at the front. May move to the nose. -->
+  <xacro:property name="phone_bracket_x" value="0.1882"/>   <!-- rear edge of the WedgeBracket base from the rear axle -->
+  <xacro:property name="phone_xyz"  value="0.2244 0.0498 0.1481"/>  <!-- back camera; 0.0498 LEFT of the centre line -->
   <xacro:property name="phone_tilt" value="${35*pi/180}"/>
 
-  <!-- electronics box on the deck behind the tower (Pi, L298N, relay, battery), for looks + mass -->
-  <xacro:property name="box_x0" value="-0.10"/>
-  <xacro:property name="box_x1" value="0.02"/>
-  <xacro:property name="box_w"  value="0.18"/>
-  <xacro:property name="box_h"  value="0.06"/>
+  <!-- electronics plate on the deck with the L298Ns under it, for looks + mass -->
+  <xacro:property name="box_x0" value="0.0032"/>
+  <xacro:property name="box_x1" value="0.2232"/>
+  <xacro:property name="box_w"  value="0.140"/>
+  <xacro:property name="box_h"  value="0.058"/>
+  <xacro:property name="box_mass" value="1.5"/>             <!-- MEASURE -->
 
   <xacro:macro name="box_inertia" params="m x y z">
     <inertia ixx="${m*(y*y+z*z)/12}" iyy="${m*(x*x+z*z)/12}" izz="${m*(x*x+y*y)/12}" ixy="0" ixz="0" iyz="0"/>
@@ -81,10 +116,14 @@
     <inertia ixx="${m*(3*r*r+h*h)/12}" iyy="${m*(3*r*r+h*h)/12}" izz="${m*r*r/2}" ixy="0" ixz="0" iyz="0"/>
   </xacro:macro>
 
+  <!-- RViz (Humble) draws ALL visuals of a link in the colour of its first visual: a part with a
+       different colour needs its own (fixed) link, like shoulder_servo in weedbot_arm.xacro. -->
   <material name="alu"><color rgba="0.75 0.75 0.78 1"/></material>
   <material name="black"><color rgba="0.1 0.1 0.1 1"/></material>
   <material name="petg_blue"><color rgba="0.2 0.5 0.9 1"/></material>
   <material name="petg_orange"><color rgba="0.95 0.6 0.15 1"/></material>
   <material name="servo"><color rgba="0.15 0.15 0.2 1"/></material>
   <material name="phone"><color rgba="0.25 0.25 0.28 1"/></material>
+  <material name="shell"><color rgba="0.85 0.85 0.8 0.25"/></material>   <!-- see-through in RViz -->
+  <material name="tank"><color rgba="0.9 0.95 1.0 0.6"/></material>
 </robot>

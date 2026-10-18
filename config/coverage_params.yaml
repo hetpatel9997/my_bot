@@ -5,7 +5,8 @@ coverage_planner:
     clearance_margin: 0.12             # m extra gap on top of footprint_padding (0.09 left repeat
                                        # false stops at walls; ~2 costmap cells needed:
                                        # less and RPP's footprint collision check fires near walls)
-    # -> centre keeps >= 0.355 m from obstacles on straight runs, >= 0.43 m where it turns.
+    # -> centre keeps >= 0.288 m from obstacles on straight runs, >= 0.66 m where it turns
+    #    (v17 footprint: half width 0.168, caster nose 0.54 from the axle, both incl. padding).
     max_cost: 50                       # global costmap (0-100): every path point stays below this
     costmap_topic: /global_costmap/costmap
 

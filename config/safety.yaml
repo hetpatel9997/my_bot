@@ -2,9 +2,14 @@
 #   twist_mux (/cmd_vel_mux) -> safety_state_node (speed governor, /cmd_vel_capped)
 #     -> collision_monitor -> /diff_cont/cmd_vel_unstamped
 # safety_state_node reads THIS file too and publishes /safety_state (clear | slow | stop).
-# Robot outline (base_link = rear axle): x -0.10 .. +0.20, y -0.225 .. +0.225.
-# The coverage path keeps the robot centre >= 0.325 m from walls (straight) and >= 0.40 m where
+# Robot outline (CAD v17, base_link = ground under the rear axle): the Nav2 footprint in
+# nav2_params.yaml, bounding box x -0.108 .. +0.520 (caster nose), y -0.158 .. +0.158.
+# The coverage path keeps the robot centre >= 0.288 m from walls (straight) and >= 0.66 m where
 # it turns: every zone below is designed not to touch walls along that path.
+# BLIND SPOT: the spray tank is in the LiDAR scan plane and hides a ~54 deg cone straight ahead
+# (+-27 deg, wider than the robot from 0.3 m ahead on). The zones AHEAD of the robot (StopBand,
+# SlowCorridor, front of stop_zone) lie inside that cone and cannot see anything there until a
+# forward sensor is added. Sides and rear work as before.
 collision_monitor:
   ros__parameters:
     base_frame_id: "base_link"
@@ -16,24 +21,25 @@ collision_monitor:
     base_shift_correction: True
     stop_pub_timeout: 2.0
     polygons: ["StopBand", "SlowCorridor"]
-    # Stop: band from the front bumper to 0.10 m ahead, 0.40 m wide. A person/obstacle in front
-    # stops the robot ~0.10 m short. Walls beside the coverage path (centre >= 0.325 m from
-    # walls, >= 0.40 m where it turns) never enter it: farthest point 0.36 m from the axle.
+    # Stop: band from the caster nose (0.52; scan_self_filter removes everything up to 0.53) to
+    # 0.10 m ahead, robot-wide (0.32 m). A person/obstacle in front stops the robot ~0.10 m short
+    # (once the front is visible, see BLIND SPOT above). Walls beside the coverage path (centre
+    # >= 0.288 m from walls, >= 0.66 m where it turns) never enter it: farthest point 0.64 m.
     # (A full "outline + 0.10 m" box stopped the robot next to walls all the time; Nav2's
     # "approach" mode was tried and never triggered in this Humble version.) Collisions while
     # turning on the spot are covered by RPP's footprint collision check on the local costmap.
     StopBand:
       type: "polygon"
-      points: [0.30, 0.20, 0.30, -0.20, 0.10, -0.20, 0.10, 0.20]
+      points: [0.62, 0.16, 0.62, -0.16, 0.53, -0.16, 0.53, 0.16]
       action_type: "stop"
       max_points: 2              # 3+ laser points inside -> stop
       visualize: True
       polygon_pub_topic: "polygon_stop"
-    # Slow (40 %): corridor 0.40 m ahead of the front bumper, robot-wide (not the sides, or the
-    # robot would crawl along every wall).
+    # Slow (40 %): corridor 0.40 m ahead of the caster nose, robot-wide (not the sides, or the
+    # robot would crawl along every wall). Inside the tank's blind cone, see above.
     SlowCorridor:
       type: "polygon"
-      points: [0.60, 0.225, 0.60, -0.225, 0.20, -0.225, 0.20, 0.225]
+      points: [0.92, 0.16, 0.92, -0.16, 0.53, -0.16, 0.53, 0.16]
       action_type: "slowdown"
       max_points: 2
       slowdown_ratio: 0.4
@@ -46,14 +52,17 @@ collision_monitor:
 
 scan_self_filter:
   ros__parameters:
-    # Robot outline (x -0.10..0.20, y +-0.225) + 0.03 m; must stay inside the StopZone above.
-    box: [-0.13, 0.23, -0.255, 0.255]
+    # Self-hits of the v17 robot: the spray tank (0.23-0.33 m ahead of the lidar, +-27 deg) and the
+    # tower column (inside the tank's shadow). Footprint bounding box + 0.002-0.01 m; must stay
+    # inside stop_zone below. (= laser_filters LaserScanBoxFilter in base_link, x -0.11..0.53,
+    # y -0.16..0.16, z 0..0.6: the 2D scan plane at z 0.268 is always inside the z range.)
+    box: [-0.11, 0.53, -0.16, 0.16]
 
 safety_state:
   ros__parameters:
-    # stop: anything within the outline + 0.04 m on any side (closer than the coverage path ever
-    # gets to walls), slow: anything in the SlowCorridor above, clear: otherwise.
-    stop_zone: [0.24, 0.265, 0.24, -0.265, -0.14, -0.265, -0.14, 0.265]
+    # stop: anything within the outline (bounding box) + 0.04 m on any side (closer than the
+    # coverage path ever gets to walls), slow: anything in the SlowCorridor above, clear: otherwise.
+    stop_zone: [0.56, 0.198, 0.56, -0.198, -0.148, -0.198, -0.148, 0.198]
     scan_topic: /scan_filtered
     e_stop_topic: /e_stop
     state_topic: /safety_state
