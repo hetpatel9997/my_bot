@@ -46,6 +46,7 @@ install(PROGRAMS
   scripts/safety_state_node.py
   scripts/scan_self_filter.py
   scripts/sim_person.py
+  scripts/phone_bridge_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

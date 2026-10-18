@@ -25,5 +25,6 @@
         <xacro:include filename="sim_ground_truth.xacro"/>
     </xacro:if>
     <xacro:include filename="camera.xacro"/>
+    <xacro:include filename="phone_mount.xacro"/>
     
 </robot>

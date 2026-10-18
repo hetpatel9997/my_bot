@@ -100,6 +100,82 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   never finished -> all goals rejected). If goals do nothing: check `ros2 topic hz /clock` and
   `ros2 lifecycle get /bt_navigator` first. Use `gui:=false`, start RViz last, never set
   LIBGL_ALWAYS_SOFTWARE (forces llvmpipe). Best fix: give the VM 4 cores / 6-8 GB.
+
+## Phone sensors (iPhone app) (added 2026-10-18)
+- iPhone 16 Pro running the WeedBotSensor app streams camera, LiDAR depth, ARKit pose, IMU and GPS
+  over ONE plain websocket `ws://<robot-ip>:8444/ws` to `scripts/phone_bridge_node.py` (v2), which
+  publishes them in ROS (no ROS on the phone). Docs + Swift source on the VM in `~/weedbot_ios`
+  (README.md, PROTOCOL.md = wire protocol, bridge/README.md, STEP_BY_STEP.md). Run on the Pi for the
+  robot, on the VM for tests: `ros2 launch my_bot phone_bridge.launch.py` (args
+  `fallback_identity_anchor` = test only, `camera_info_url`, `cert_dir`). Log line `App websocket:
+  ws://<this-ip>:8444/ws`; enter that IP in the app (gear icon); green dot = connected; the app
+  remembers it and reconnects by itself. Needs `pip3 install aiohttp pyyaml` (VM done 2026-10-18,
+  Pi not yet). Port 8444 has no authentication: LAN only, never port-forward it. The Safari page
+  (8443/8080) needs certificates (make_cert.sh) and a `www/` folder, neither exists; not needed.
+- Topics: `/phone/image/compressed` (JPEG ~10 Hz) + `/phone/camera_info` (ARKit intrinsics scaled to
+  the streamed size), `/phone/depth/image` (16UC1 mm, 0 = invalid, 256x192, ~5 Hz) +
+  `/phone/depth/camera_info`, `/phone/ar_pose` (PoseStamped, phone_optical in ar_origin, ~30 Hz),
+  `/phone/imu/data_raw` (phone_link, rad/s, m/s^2 +9.8 up, ~100 Hz), `/phone/fix` (NavSatFix,
+  ~1 Hz), `/phone/ar_twist` + `/phone/odom` (base_link velocity from ARKit, Mounted mode only),
+  `/weed_tags` (PointStamped in map, latched, last 50), `/weed_tags/json` (full record),
+  `/phone/status` (JSON 1 Hz: connected, mode, track, anchored, rates, thermal, battery),
+  `/phone/e_stop` (Bool, latched, true on thermal critical). Runtime: `ros2 param set /phone_bridge
+  image_hz 5.0` (also depth_hz, pose_hz, jpeg_quality, image_width) is pushed to the app.
+- Frames: `phone_link` (phone body: x right edge, y top edge, z out of the screen; IMU),
+  `phone_optical` (back camera: x right, y down, z forward; images, depth, AR poses), `ar_origin`
+  (ARKit world in ROS axes, z up: ROS (x, y, z) = ARKit (x, -z, y)); `map -> ar_origin` static TF
+  once anchored. `description/phone_mount.xacro` (included from robot.urdf.xacro) adds
+  base_link -> phone_mount -> phone_optical -> phone_link: phone in landscape, home-button end on
+  the right seen from behind, camera forward. `phone_xyz` "0.20 0.0 0.30" is a PLACEHOLDER until
+  measured (base_link origin -> back camera), `phone_tilt` 35 deg; it sets the mounted tag
+  positions and the ARKit twist lever arm. Mount check, robot still: `ros2 topic echo
+  /phone/imu/data_raw --field linear_acceleration` ~ +8.0 x, +5.6 z (z wrong sign -> `accel_sign:
+  -1.0`); turning CCW must give + on x (else `gyro_sign: -1.0`), both in phone_bridge.launch.py.
+- EKF: `ekf.yaml` twist0 = `/phone/ar_twist` (vx, vy, vyaw; odom0/imu0 unchanged; reference copy
+  `config/ekf_phone_twist.yaml`). Covariance x10 when track is limited, nothing when notAvailable.
+  It is published whenever the app is in MOUNTED mode (base_link -> phone_optical always exists
+  now), so: Mounted only when the phone is really on the robot, otherwise the phone's own motion
+  goes into /odom. Never run the bridge in Mounted mode next to a Gazebo sim in the same domain
+  (the sim EKF would fuse the real phone, with wall-clock stamps against sim time).
+- Tagging a weed (tap it in the camera picture). MOUNTED: point -> TF map <- phone_optical at the
+  photo time; needs the robot localized (AMCL/SLAM) and the xacro mount. HANDHELD: with the phone
+  still on the localized robot and track normal, press Anchor (`/phone/anchor_here`; the bridge
+  also auto-anchors when the app switches Mounted -> Handheld), then take the phone off, walk and
+  tap; points go through the anchor. ANY new AR session kills the anchor (status `anchored:
+  false`, tag ack "no anchor for this AR session"): Reset AR, an AR error, or any interruption
+  (phone locked, Control Center/notifications, app switch, call: the app restarts AR with a new
+  session id; happened 3 times in the 2026-10-18 test). Keep the app on screen from Anchor to the
+  last tap. `/phone/anchor_clear` drops it. Every tap is saved, even without a position:
+  `~/weedbot_data/weed_tags/<name>.jpg` + `.json` (map_xyz, method tf|anchor, reason if none,
+  GPS, status pending, kills []) + a line in `index.jsonl`; Photo button -> `~/weedbot_data/phone_photos`.
+  `ros2 topic echo /weed_tags --once` shows an OLD tag (50 are latched); newest = the bridge log
+  line or `tail -1 ~/weedbot_data/weed_tags/index.jsonl`.
+- Safety: the bridge publishes no velocity commands. `/phone/e_stop` is NOT wired into twist_mux
+  (only add it, priority 253, if the phone becomes the camera for the spray decision); the LiDAR
+  safety chain does not depend on the phone. Keep the phone on 5 V when mounted (test: battery
+  45% -> 35% in ~25 min, thermal "fair").
+- VM test (no robot; `ros_local` in EVERY terminal):
+  `ros2 launch my_bot phone_bridge.launch.py fallback_identity_anchor:=true`, then
+  `ros2 topic hz /phone/image/compressed` (~10), `/phone/ar_pose` (~30), `/phone/imu/data_raw`
+  (~100), `/phone/depth/image` (~5), `ros2 topic echo /phone/status --once` (track normal, lidar
+  true); `ros2 service call /phone/anchor_here std_srvs/srv/Trigger` -> success;
+  `rviz2 -d ~/dev_ws/src/my_bot/config/phone_test.rviz` (fixed frame map; phone axes, blue = view
+  direction; red balls = /weed_tags; depth panel dark = near, black = no reading). In this test
+  mode map = ar_origin = where the app's AR session STARTED (app start or Reset AR), and the
+  camera's forward direction at that moment is map +y, NOT +x (ARKit .gravity alignment); z is
+  relative to the phone's height then (floor ~ -1.1 m). Handheld check: Reset AR at a start spot
+  aimed at a floor marker, Anchor, walk, tap the marker -> (~0, marker distance, -phone height).
+- Results 2026-10-18 (VM 192.168.1.82, phone 192.168.1.34, iOS 27.0.1): image 9.97, pose 30.1,
+  imu 99.8, depth 5.00 Hz, track normal, lidar true; anchor_here success; handheld tag at map
+  (-0.03, 0.99, -1.15) (sideways 3 cm; the phone then laid next to the marker read
+  (0.02, 0.89, -1.11)); marker distance not tape-measured (ARKit: 0.99 m and 0.95 m in two
+  sessions); RViz pose and depth update live. `python3 test/phone_bridge/test_bridge_v2.py`
+  (no ROS needed) -> ALL BRIDGE V2 TESTS PASSED. The 11 tags from that test in
+  `~/weedbot_data/weed_tags` are test taps from several AR sessions, not weeds.
+- The protected ROS communication setup is UNCHANGED by the phone work: FastDDS discovery server,
+  fastdds.service, `~/fastdds_super_client.xml`, FASTRTPS_DEFAULT_PROFILES_FILE, both `.bashrc`
+  files and ROS_DOMAIN_ID were not touched. The phone link is plain TCP 8444 outside DDS; VM ufw is
+  not enabled (nothing to open); the Pi's firewall is not checked yet.
 ## How the robot actually runs (updated 2026-10-02)
 - Boot: the ONLY robot-related systemd service is `fastdds.service` (FastDDS discovery server,
   `fastdds discovery --server-id 0`, listening on 0.0.0.0:11811). Nothing ROS starts at boot and

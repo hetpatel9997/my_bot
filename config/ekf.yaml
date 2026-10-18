@@ -46,6 +46,22 @@ ekf_filter_node:
     imu0_relative: false
     imu0_remove_gravitational_acceleration: true
 
+    # Phone (iPhone app, ARKit visual-inertial tracking): base_link velocity vx, vy, vyaw from
+    # /phone/ar_twist (geometry_msgs/TwistWithCovarianceStamped, frame base_link). A third source
+    # next to the wheels and the MPU6050: ARKit does not slip when the wheels do. phone_bridge_node
+    # publishes it only while the app is in Mounted mode; with no publisher the EKF ignores it.
+    # Only use Mounted mode when the phone is really on the robot (see bridge/README, ekf_phone_twist.yaml).
+    twist0: /phone/ar_twist
+    twist0_config: [false, false, false,
+                    false, false, false,
+                    true,  true,  false,
+                    false, false, true,
+                    false, false, false]
+    twist0_queue_size: 10
+    twist0_differential: false
+    twist0_relative: false
+    twist0_nodelay: true
+
     # Process noise: how much we expect the true state to wander between updates.
     # Yaw (index 5) and vyaw (index 11) are kept small so the gyro dominates rotation.
     process_noise_covariance: [0.05, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,

@@ -1,0 +1,19 @@
+# Add to config/ekf.yaml (robot_localization ekf_node) to fuse the phone's ARKit velocity.
+# Keep odom0 (wheels) and imu0 (MPU6050 yaw rate) exactly as they are; this is a third source.
+# ARKit gives a full 6-DoF track, but only the body velocity is frame-independent, so that is what
+# goes in. It is published only while the app is in "Mounted" mode.
+#
+# twist0: /phone/ar_twist   (geometry_msgs/TwistWithCovarianceStamped, frame base_link)
+#           x  y  z  roll pitch yaw  vx    vy    vz   vroll vpitch vyaw  ax ay az
+ekf_filter_node:
+  ros__parameters:
+    twist0: /phone/ar_twist
+    twist0_config: [false, false, false,
+                    false, false, false,
+                    true,  true,  false,
+                    false, false, true,
+                    false, false, false]
+    twist0_queue_size: 10
+    twist0_differential: false
+    twist0_relative: false
+    twist0_nodelay: true

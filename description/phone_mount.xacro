@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<!--
+  Phone mount for the URDF. Include from robot.urdf.xacro:
+      <xacro:include filename="phone_mount.xacro"/>
+  and set phone_xyz / phone_tilt to where the phone's back camera actually sits.
+
+  Frames it adds (all fixed):
+    phone_mount    forward-looking camera-optical orientation at the camera position
+    phone_optical  = phone_mount tilted down by phone_tilt. Back camera: x right, y down, z forward.
+                     Images, depth and ARKit poses are published in this frame.
+    phone_link     = the phone body: x = right edge, y = top edge, z = out of the screen.
+                     /phone/imu/data_raw is published in this frame. Its rotation inside
+                     phone_optical is fixed by the hardware (rpy pi 0 -pi/2, a 180-degree turn).
+
+  This describes the phone held in LANDSCAPE with the home-button end on the RIGHT when you stand
+  behind the robot looking forward (the app's locked orientation), screen facing up/back, back camera
+  looking forward and down. With phone_tilt = 35 deg the IMU at rest shows about +8.0 on its x axis
+  and +5.6 on z (both point partly up: x up-and-forward, z = out of the screen = up-and-back).
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:property name="phone_xyz"  value="0.20 0.0 0.30"/>
+  <xacro:property name="phone_tilt" value="${35*pi/180}"/>
+
+  <joint name="phone_mount_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="phone_mount"/>
+    <origin xyz="${phone_xyz}" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+  <link name="phone_mount"/>
+
+  <!-- tilt down: rotate the optical frame about its x (right) axis by -tilt (positive would look up) -->
+  <joint name="phone_optical_joint" type="fixed">
+    <parent link="phone_mount"/>
+    <child link="phone_optical"/>
+    <origin xyz="0 0 0" rpy="${-phone_tilt} 0 0"/>
+  </joint>
+  <link name="phone_optical"/>
+
+  <joint name="phone_link_joint" type="fixed">
+    <parent link="phone_optical"/>
+    <child link="phone_link"/>
+    <origin xyz="0 0 0" rpy="${pi} 0 ${-pi/2}"/>
+  </joint>
+  <link name="phone_link"/>
+
+</robot>
