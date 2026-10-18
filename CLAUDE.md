@@ -168,8 +168,8 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
 - Results 2026-10-18 (VM 192.168.1.82, phone 192.168.1.34, iOS 27.0.1): image 9.97, pose 30.1,
   imu 99.8, depth 5.00 Hz, track normal, lidar true; anchor_here success; handheld tag at map
   (-0.03, 0.99, -1.15) (sideways 3 cm; the phone then laid next to the marker read
-  (0.02, 0.89, -1.11)); marker distance not tape-measured (ARKit: 0.99 m and 0.95 m in two
-  sessions); RViz pose and depth update live. `python3 test/phone_bridge/test_bridge_v2.py`
+  (0.02, 0.89, -1.11)); marker 1.00 m from the start (tape) -> tag 0.99 m, ~1 cm error (an
+  earlier try read 0.95 m, ~5 cm); RViz pose and depth update live. `python3 test/phone_bridge/test_bridge_v2.py`
   (no ROS needed) -> ALL BRIDGE V2 TESTS PASSED. The 11 tags from that test in
   `~/weedbot_data/weed_tags` are test taps from several AR sessions, not weeds.
 - The protected ROS communication setup is UNCHANGED by the phone work: FastDDS discovery server,
