@@ -1,4 +1,9 @@
 <?xml version="1.0"?>
+<!-- WeedBot (rebuilt 2026-10): rear differential drive + front stem caster, lidar tower with the LD06
+     under the 4-servo arm, phone mount. All measurements: weedbot_properties.xacro (MEASURE markers).
+     base_link = on the ground under the centre of the rear axle.
+     Old files kept on disk but no longer included: robot_core.xacro, lidar.xacro, camera.xacro,
+     phone_mount.xacro (the body defines phone_mount -> phone_optical -> phone_link itself). -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro"  name="robot">
 
     <xacro:arg name="use_ros2_control" default="true"/>
@@ -6,10 +11,16 @@
     <!-- Gazebo wheel friction (sim only; the real robot ignores <gazebo> tags). 1.0 = normal grip,
          e.g. 0.1 = slippery floor to show the EKF keeping the heading with the IMU. -->
     <xacro:arg name="wheel_mu" default="1.0"/>
-    <!-- Gazebo camera sensor (sim only). Off by default to save CPU; true for Phase 1 work. -->
+    <!-- Kept because rsp.launch.py passes it; unused since camera.xacro is no longer included
+         (the phone is the camera now). -->
     <xacro:arg name="sim_camera" default="false"/>
 
-    <xacro:include filename="robot_core.xacro" />
+    <!-- used by imu.xacro (was defined in the old robot_core.xacro) -->
+    <material name="blue"><color rgba="0.2 0.2 1 1"/></material>
+
+    <xacro:include filename="weedbot_properties.xacro"/>
+    <xacro:include filename="weedbot_body.xacro"/>
+    <xacro:include filename="weedbot_arm.xacro"/>
 
     <!--<xacro:include filename="gazebo_control.xacro"/>-->
     <xacro:if value="$(arg use_ros2_control)">
@@ -18,13 +29,11 @@
     <xacro:unless value="$(arg use_ros2_control)">
         <xacro:include filename="gazebo_control.xacro"/>
     </xacro:unless>
-    <xacro:include filename="lidar.xacro"/>
     <xacro:include filename="imu.xacro"/>
     <xacro:if value="$(arg sim_mode)">
         <xacro:include filename="imu_sim.xacro"/>
+        <xacro:include filename="lidar_sim.xacro"/>
         <xacro:include filename="sim_ground_truth.xacro"/>
     </xacro:if>
-    <xacro:include filename="camera.xacro"/>
-    <xacro:include filename="phone_mount.xacro"/>
-    
+
 </robot>

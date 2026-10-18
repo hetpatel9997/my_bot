@@ -47,6 +47,7 @@ install(PROGRAMS
   scripts/scan_self_filter.py
   scripts/sim_person.py
   scripts/phone_bridge_node.py
+  scripts/arm_joint_state_stub.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

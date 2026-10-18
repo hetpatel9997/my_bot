@@ -1,0 +1,90 @@
+<?xml version="1.0"?>
+<!--
+  ONE place for every measurement of the real WeedBot. Everything else (body, arm, lidar tower,
+  phone mount, Gazebo) reads from here. Units: metres and radians. Frame: x forward, y left, z up.
+  base_link = on the GROUND, under the centre of the rear (drive) axle.
+
+  Values marked MEASURE are estimates from the CAD/STEP and must be checked with a tape measure.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- drive wheels (5 inch) -->
+  <!-- radius / separation = the diff_cont values in config/my_controllers.yaml (2026-10-18). Both
+       MEASURE: CLAUDE.md lists 5 in wheels (0.0635) and ~0.206 separation, the CAD estimate was 0.300.
+       Change them here AND in my_controllers.yaml together. -->
+  <xacro:property name="wheel_radius"      value="0.06985"/>
+  <xacro:property name="wheel_width"       value="0.032"/>
+  <xacro:property name="wheel_separation"  value="0.1895"/>  <!-- MEASURE: centre of left tyre to centre of right tyre; must equal diff_cont wheel_separation -->
+  <xacro:property name="wheel_mass"        value="0.25"/>
+  <!-- joint names must match ros2_control / diffdrive_arduino -->
+  <xacro:property name="left_wheel_joint"  value="left_wheel_joint"/>
+  <xacro:property name="right_wheel_joint" value="right_wheel_joint"/>
+
+  <!-- aluminium frame (NXP platform), relative to the rear axle -->
+  <xacro:property name="frame_x_rear"   value="-0.12"/>    <!-- MEASURE: rear end of the frame behind the axle -->
+  <xacro:property name="frame_x_front"  value="0.28"/>     <!-- MEASURE: front end (front cross rail outer face) -->
+  <xacro:property name="frame_width"    value="0.22"/>     <!-- MEASURE: outside width of the side rails -->
+  <xacro:property name="frame_bottom_z" value="0.0705"/>   <!-- underside of the rails above the ground (you said ~3 in) -->
+  <xacro:property name="frame_top_z"    value="0.0905"/>   <!-- top of the rails (20 mm extrusion) = the "deck" -->
+  <xacro:property name="frame_mass"     value="2.5"/>
+
+  <!-- front caster (Krowne 5 inch stem caster, side-mounted socket bracket) -->
+  <xacro:property name="caster_x"          value="0.248"/>  <!-- swivel axis, centre of the front cross rail -->
+  <xacro:property name="caster_mount_z"    value="0.216"/>  <!-- top of the stem = 8.5 in above the ground -->
+  <xacro:property name="caster_wheel_radius" value="0.0635"/>
+  <xacro:property name="caster_wheel_width"  value="0.032"/>
+  <xacro:property name="caster_trail"      value="0.040"/>  <!-- MEASURE: swivel axis to wheel axle, horizontal -->
+
+  <!-- lidar tower + LD06 (lidar sits under the raised arm base, scan plane above everything else) -->
+  <xacro:property name="tower_x"        value="0.05"/>      <!-- column centre, behind the lidar -->
+  <xacro:property name="tower_w"        value="0.020"/>     <!-- column width (y), the only thing in the lidar's view: ~14 deg blind sector at the back -->
+  <xacro:property name="tower_d"        value="0.040"/>     <!-- column depth (x) -->
+  <xacro:property name="lidar_x"        value="0.13"/>      <!-- LD06 centre, in front of the column -->
+  <xacro:property name="lidar_base_z"   value="0.215"/>     <!-- bottom of the LD06: scan plane (base + 0.023) must clear the highest
+                                                                  thing on the robot = the caster stem top (0.216) and the phone (0.16).
+                                                                  If you cut the caster stem down to ~0.16, lower this to 0.170 -->
+  <xacro:property name="lidar_dia"      value="0.0386"/>
+  <xacro:property name="lidar_h"        value="0.035"/>
+  <xacro:property name="lidar_scan_dz"  value="0.023"/>     <!-- LD06 optical centre above its bottom face -->
+  <xacro:property name="lidar_frame"    value="laser_frame"/>   <!-- must match the ldlidar driver frame_id -->
+  <xacro:property name="shelf_t"        value="0.005"/>
+
+  <!-- robotic arm: 4 x MG996R (40.7 x 19.7 x 42.9 mm, 180 deg) -->
+  <xacro:property name="arm_x"          value="${lidar_x}"/>   <!-- base yaw axis directly above the lidar -->
+  <xacro:property name="arm_base_z"     value="${lidar_base_z + lidar_h + 0.012}"/>  <!-- plate underside 12 mm above the lidar top -->
+  <xacro:property name="arm_plate_t"    value="0.006"/>
+  <xacro:property name="arm_plate_r"    value="0.060"/>
+  <xacro:property name="arm_l1"         value="0.045"/>     <!-- MEASURE: base plate to shoulder axis -->
+  <xacro:property name="arm_l2"         value="0.140"/>     <!-- MEASURE: shoulder axis to elbow axis -->
+  <xacro:property name="arm_l3"         value="0.120"/>     <!-- MEASURE: elbow axis to wrist axis -->
+  <xacro:property name="arm_l4"         value="0.060"/>     <!-- MEASURE: wrist axis to the spray nozzle tip -->
+  <xacro:property name="servo_limit"    value="${pi/2}"/>   <!-- MG996R: 0..180 deg -> -90..+90 around the centre -->
+  <xacro:property name="servo_effort"   value="1.0"/>       <!-- ~11 kg.cm = 1.08 N.m -->
+  <xacro:property name="servo_velocity" value="5.0"/>       <!-- rad/s (0.17 s / 60 deg) -->
+  <xacro:property name="link_w"         value="0.020"/>
+
+  <!-- phone mount (printed cradle + wedge bracket), on the deck at the front, centred -->
+  <xacro:property name="phone_bracket_x" value="0.20"/>     <!-- MEASURE: rear edge of the WedgeBracket base from the rear axle -->
+  <xacro:property name="phone_xyz"  value="${phone_bracket_x + 0.036} 0.0 ${frame_top_z + 0.058}"/>  <!-- camera position from the mount macro -->
+  <xacro:property name="phone_tilt" value="${35*pi/180}"/>
+
+  <!-- electronics box on the deck behind the tower (Pi, L298N, relay, battery), for looks + mass -->
+  <xacro:property name="box_x0" value="-0.10"/>
+  <xacro:property name="box_x1" value="0.02"/>
+  <xacro:property name="box_w"  value="0.18"/>
+  <xacro:property name="box_h"  value="0.06"/>
+
+  <xacro:macro name="box_inertia" params="m x y z">
+    <inertia ixx="${m*(y*y+z*z)/12}" iyy="${m*(x*x+z*z)/12}" izz="${m*(x*x+y*y)/12}" ixy="0" ixz="0" iyz="0"/>
+  </xacro:macro>
+  <xacro:macro name="cyl_inertia" params="m r h">
+    <inertia ixx="${m*(3*r*r+h*h)/12}" iyy="${m*(3*r*r+h*h)/12}" izz="${m*r*r/2}" ixy="0" ixz="0" iyz="0"/>
+  </xacro:macro>
+
+  <material name="alu"><color rgba="0.75 0.75 0.78 1"/></material>
+  <material name="black"><color rgba="0.1 0.1 0.1 1"/></material>
+  <material name="petg_blue"><color rgba="0.2 0.5 0.9 1"/></material>
+  <material name="petg_orange"><color rgba="0.95 0.6 0.15 1"/></material>
+  <material name="servo"><color rgba="0.15 0.15 0.2 1"/></material>
+  <material name="phone"><color rgba="0.25 0.25 0.28 1"/></material>
+</robot>

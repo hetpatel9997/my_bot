@@ -10,6 +10,7 @@ from launch.actions import RegisterEventHandler
 from launch.event_handlers import OnProcessStart
 
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
 
@@ -24,7 +25,7 @@ def generate_launch_description():
     )
 
     robot_description_file = os.path.join(get_package_share_directory(package_name), 'description', 'robot.urdf.xacro')
-    robot_description = Command(['xacro ', robot_description_file])
+    robot_description = ParameterValue(Command(['xacro ', robot_description_file]), value_type=str)   # text, not YAML
 
     controller_params_file = os.path.join(get_package_share_directory(package_name),'config','my_controllers.yaml')
 
@@ -89,6 +90,12 @@ def generate_launch_description():
                 )]), launch_arguments={'use_sim_time': 'false'}.items()
     )
 
+    # Arm servos and caster have no driver yet: fixed /joint_states so TF for spray_tip and the
+    # caster links exists. The servo driver replaces the arm part later (same joint names).
+    arm_stub = Node(package=package_name, executable='arm_joint_state_stub.py', name='arm_joint_state_stub',
+                    output='screen',
+                    parameters=[os.path.join(get_package_share_directory(package_name), 'config', 'arm_joint_state_stub.yaml')])
+
     # Launch them all!
     return LaunchDescription([
         rsp,
@@ -97,5 +104,6 @@ def generate_launch_description():
         delayed_joint_broad_spawner,
         imu_ekf,
         twist_mux,
-        safety
+        safety,
+        arm_stub
     ])

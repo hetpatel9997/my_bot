@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<!-- SIMULATION ONLY (included from robot.urdf.xacro when sim_mode is true).
+     Gazebo LD06 stand-in on laser_frame (defined in weedbot_body.xacro): /scan, 360 samples, 10 Hz,
+     same topic and frame as the real ldlidar driver. Moved here from the old lidar.xacro, which also
+     defined the laser link and is no longer included. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <gazebo reference="${lidar_frame}">
+    <sensor name="laser" type="ray">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>false</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14</min_angle>
+            <max_angle>3.14</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <!-- 0.05: just outside the LD06 housing (radius 0.019), so the sim sees the tower column
+               0.06-0.10 m behind the laser like the real LD06 does (scan_self_filter removes it).
+               The old 0.12 was for the old 0.05 m housing and hid the column. -->
+          <min>0.05</min>
+          <max>12</max>
+          <resolution>0.01</resolution>
+        </range>
+      </ray>
+      <plugin name="laser_controller" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <argument>~/out:=scan</argument>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>${lidar_frame}</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+</robot>

@@ -75,6 +75,12 @@ def generate_launch_description():
                 )]), launch_arguments={'use_sim_time': 'true'}.items()
     )
 
+    # Arm (and caster) joints have no driver yet: fixed /joint_states so TF for spray_tip exists
+    arm_stub = Node(package=package_name, executable='arm_joint_state_stub.py', name='arm_joint_state_stub',
+                    output='screen',
+                    parameters=[os.path.join(get_package_share_directory(package_name), 'config', 'arm_joint_state_stub.yaml'),
+                                {'use_sim_time': True}])
+
     # Launch them all!
     return LaunchDescription([
         DeclareLaunchArgument('world', default_value='',
@@ -92,5 +98,6 @@ def generate_launch_description():
         joint_broad_spawner,
         imu_ekf,
         twist_mux,
-        safety
+        safety,
+        arm_stub
     ])

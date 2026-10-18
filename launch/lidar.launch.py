@@ -1,5 +1,5 @@
 # LD06 LiDAR -> /scan in laser_frame. Uses ldlidar_stl_ros2 from ~/robot_ws (not the retired ~/ros2_ws).
-# The base_link -> laser_frame transform comes from the URDF (lidar.xacro) via robot_state_publisher,
+# The base_link -> laser_frame transform comes from the URDF (weedbot_body.xacro, laser_frame) via robot_state_publisher,
 # so unlike the vendor ld06.launch.py this does NOT start a static_transform_publisher.
 #
 #   ros2 launch my_bot lidar.launch.py                         # default port /dev/ldlidar

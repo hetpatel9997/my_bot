@@ -1,0 +1,257 @@
+<?xml version="1.0"?>
+<!--
+  WeedBot body: frame, rear drive wheels, front stem caster, electronics box, lidar tower with the
+  LD06 under the raised arm base, and the phone mount. Include from robot.urdf.xacro:
+      <xacro:include filename="weedbot_properties.xacro"/>
+      <xacro:include filename="weedbot_body.xacro"/>
+      <xacro:include filename="weedbot_arm.xacro"/>
+  with  <xacro:arg name="sim_mode" default="false"/>  declared before (the Gazebo caster is a
+  frictionless sphere; the real one is the swivelling Krowne caster).
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- =============================== base =============================== -->
+  <link name="base_link"/>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="base_footprint"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="base_footprint"/>
+
+  <!-- =============================== frame =============================== -->
+  <joint name="chassis_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="chassis"/>
+    <origin xyz="${(frame_x_rear+frame_x_front)/2} 0 ${(frame_bottom_z+frame_top_z)/2}" rpy="0 0 0"/>
+  </joint>
+  <link name="chassis">
+    <!-- two side rails + front/rear cross rails + the 40x20 spine, drawn as 20 mm extrusions -->
+    <visual>
+      <origin xyz="0 ${frame_width/2-0.01} 0"/>
+      <geometry><box size="${frame_x_front-frame_x_rear} 0.02 ${frame_top_z-frame_bottom_z}"/></geometry>
+      <material name="alu"/>
+    </visual>
+    <visual>
+      <origin xyz="0 ${-(frame_width/2-0.01)} 0"/>
+      <geometry><box size="${frame_x_front-frame_x_rear} 0.02 ${frame_top_z-frame_bottom_z}"/></geometry>
+      <material name="alu"/>
+    </visual>
+    <visual>
+      <origin xyz="${(frame_x_front-frame_x_rear)/2-0.01} 0 0"/>
+      <geometry><box size="0.02 ${frame_width} ${frame_top_z-frame_bottom_z}"/></geometry>
+      <material name="alu"/>
+    </visual>
+    <visual>
+      <origin xyz="${-(frame_x_front-frame_x_rear)/2+0.01} 0 0"/>
+      <geometry><box size="0.02 ${frame_width} ${frame_top_z-frame_bottom_z}"/></geometry>
+      <material name="alu"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry><box size="${frame_x_front-frame_x_rear} 0.04 ${frame_top_z-frame_bottom_z}"/></geometry>
+      <material name="alu"/>
+    </visual>
+    <collision>
+      <geometry><box size="${frame_x_front-frame_x_rear} ${frame_width} ${frame_top_z-frame_bottom_z}"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="${frame_mass}"/>
+      <xacro:box_inertia m="${frame_mass}" x="${frame_x_front-frame_x_rear}" y="${frame_width}" z="${frame_top_z-frame_bottom_z}"/>
+    </inertial>
+  </link>
+
+  <!-- electronics box on the deck -->
+  <joint name="ebox_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="ebox"/>
+    <origin xyz="${(box_x0+box_x1)/2} 0 ${frame_top_z+box_h/2}"/>
+  </joint>
+  <link name="ebox">
+    <visual><geometry><box size="${box_x1-box_x0} ${box_w} ${box_h}"/></geometry><material name="black"/></visual>
+    <collision><geometry><box size="${box_x1-box_x0} ${box_w} ${box_h}"/></geometry></collision>
+    <inertial><mass value="1.5"/><xacro:box_inertia m="1.5" x="${box_x1-box_x0}" y="${box_w}" z="${box_h}"/></inertial>
+  </link>
+
+  <!-- =============================== drive wheels =============================== -->
+  <!-- axle on the ground line of base_link: wheel centre at z = wheel_radius; the printed cheeks hang the
+       axle 7 mm below the frame (AXLE_DROP in weedbot_drive.FCMacro) -->
+  <xacro:macro name="drive_wheel" params="name joint side">
+    <joint name="${joint}" type="continuous">
+      <parent link="base_link"/>
+      <child link="${name}"/>
+      <origin xyz="0 ${side*wheel_separation/2} ${wheel_radius}" rpy="${-side*pi/2} 0 0"/>
+      <axis xyz="0 0 ${side}"/>
+    </joint>
+    <link name="${name}">
+      <visual><geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry><material name="black"/></visual>
+      <collision><geometry><sphere radius="${wheel_radius}"/></geometry></collision>
+      <inertial><mass value="${wheel_mass}"/><xacro:cyl_inertia m="${wheel_mass}" r="${wheel_radius}" h="${wheel_width}"/></inertial>
+    </link>
+    <!-- friction from the wheel_mu arg (launch_sim wheel_mu:=..., default 1.0); contact settings as the old robot_core.xacro -->
+    <gazebo reference="${name}">
+      <material>Gazebo/Black</material>
+      <mu1 value="$(arg wheel_mu)"/><mu2 value="$(arg wheel_mu)"/>
+      <fdir1 value="1 0 0"/><kp value="10000000.0"/><kd value="1.0"/><minDepth value="0.001"/>
+    </gazebo>
+  </xacro:macro>
+  <!-- left: rpy -pi/2 puts the joint z along +y; right: rpy +pi/2 puts it along -y, so its axis is
+       flipped (0 0 -1). Result: positive joint velocity = forward for BOTH wheels, which is what
+       diff_drive_controller expects (this was the "forward spins the robot" fix in the sim). -->
+  <xacro:drive_wheel name="left_wheel"  joint="${left_wheel_joint}"  side="1"/>
+  <xacro:drive_wheel name="right_wheel" joint="${right_wheel_joint}" side="-1"/>
+
+  <!-- 40T axle gears + cheeks, visual only -->
+  <xacro:macro name="cheek" params="side">
+    <joint name="cheek_${side}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="cheek_${side}"/>
+      <origin xyz="0 ${side*0.075} ${wheel_radius+0.02}"/>
+    </joint>
+    <link name="cheek_${side}">
+      <visual><geometry><box size="0.087 0.006 0.09"/></geometry><material name="petg_orange"/></visual>
+    </link>
+  </xacro:macro>
+  <xacro:cheek side="1"/>
+  <xacro:cheek side="-1"/>
+
+  <!-- =============================== front caster =============================== -->
+  <xacro:if value="$(arg sim_mode)">
+    <!-- Gazebo: frictionless ball, same contact height as the real wheel -->
+    <joint name="caster_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="caster_wheel"/>
+      <origin xyz="${caster_x} 0 ${caster_wheel_radius}"/>
+    </joint>
+    <link name="caster_wheel">
+      <visual><geometry><sphere radius="${caster_wheel_radius}"/></geometry><material name="black"/></visual>
+      <collision><geometry><sphere radius="${caster_wheel_radius}"/></geometry></collision>
+      <inertial><mass value="0.3"/><inertia ixx="0.0005" iyy="0.0005" izz="0.0005" ixy="0" ixz="0" iyz="0"/></inertial>
+    </link>
+    <gazebo reference="caster_wheel"><material>Gazebo/Black</material><mu1 value="0.001"/><mu2 value="0.001"/></gazebo>
+  </xacro:if>
+  <xacro:unless value="$(arg sim_mode)">
+    <!-- real robot: stem socket bracket on the front rail, swivel, fork, wheel -->
+    <joint name="caster_socket_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="caster_socket"/>
+      <origin xyz="${caster_x} 0 ${(frame_top_z+caster_mount_z)/2}"/>
+    </joint>
+    <link name="caster_socket">
+      <visual><geometry><box size="0.04 0.04 ${caster_mount_z-frame_top_z}"/></geometry><material name="petg_orange"/></visual>
+    </link>
+    <joint name="caster_swivel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="caster_swivel"/>
+      <origin xyz="${caster_x} 0 ${caster_mount_z}"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+    <link name="caster_swivel">
+      <!-- stem + fork, drawn down to the wheel axle, trailing behind the swivel axis -->
+      <visual>
+        <origin xyz="0 0 ${-(caster_mount_z-caster_wheel_radius)/2}"/>
+        <geometry><cylinder radius="0.012" length="${caster_mount_z-caster_wheel_radius}"/></geometry>
+        <material name="alu"/>
+      </visual>
+      <visual>
+        <origin xyz="${-caster_trail/2} 0 ${-(caster_mount_z-caster_wheel_radius)}"/>
+        <geometry><box size="${caster_trail+0.02} ${caster_wheel_width+0.02} 0.02"/></geometry>
+        <material name="alu"/>
+      </visual>
+      <inertial><mass value="0.4"/><inertia ixx="0.001" iyy="0.001" izz="0.0005" ixy="0" ixz="0" iyz="0"/></inertial>
+    </link>
+    <joint name="caster_wheel_joint" type="continuous">
+      <parent link="caster_swivel"/>
+      <child link="caster_wheel"/>
+      <origin xyz="${-caster_trail} 0 ${-(caster_mount_z-caster_wheel_radius)}" rpy="${-pi/2} 0 0"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+    <link name="caster_wheel">
+      <visual><geometry><cylinder radius="${caster_wheel_radius}" length="${caster_wheel_width}"/></geometry><material name="black"/></visual>
+      <collision><geometry><sphere radius="${caster_wheel_radius}"/></geometry></collision>
+      <inertial><mass value="0.3"/><xacro:cyl_inertia m="0.3" r="${caster_wheel_radius}" h="${caster_wheel_width}"/></inertial>
+    </link>
+  </xacro:unless>
+
+  <!-- =============================== lidar tower + LD06 =============================== -->
+  <!-- one column behind the lidar carries a shelf for the LD06 and, higher, the arm base plate.
+       Only the column is in the scan: a ~14 degree blind sector straight back. -->
+  <joint name="tower_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="tower"/>
+    <origin xyz="${tower_x} 0 ${(frame_top_z+arm_base_z)/2}"/>
+  </joint>
+  <link name="tower">
+    <visual><geometry><box size="${tower_d} ${tower_w} ${arm_base_z-frame_top_z}"/></geometry><material name="petg_blue"/></visual>
+    <collision><geometry><box size="${tower_d} ${tower_w} ${arm_base_z-frame_top_z}"/></geometry></collision>
+    <inertial><mass value="0.2"/><xacro:box_inertia m="0.2" x="${tower_d}" y="${tower_w}" z="${arm_base_z-frame_top_z}"/></inertial>
+  </link>
+
+  <joint name="lidar_shelf_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_shelf"/>
+    <origin xyz="${(tower_x+lidar_x)/2} 0 ${lidar_base_z-shelf_t/2}"/>
+  </joint>
+  <link name="lidar_shelf">
+    <visual><geometry><box size="${lidar_x-tower_x+lidar_dia} ${lidar_dia+0.02} ${shelf_t}"/></geometry><material name="petg_blue"/></visual>
+  </link>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_body"/>
+    <origin xyz="${lidar_x} 0 ${lidar_base_z+lidar_h/2}"/>
+  </joint>
+  <link name="lidar_body">
+    <visual><geometry><cylinder radius="${lidar_dia/2}" length="${lidar_h}"/></geometry><material name="black"/></visual>
+    <collision><geometry><cylinder radius="${lidar_dia/2}" length="${lidar_h}"/></geometry></collision>
+    <inertial><mass value="0.05"/><xacro:cyl_inertia m="0.05" r="${lidar_dia/2}" h="${lidar_h}"/></inertial>
+  </link>
+  <!-- the frame the scan is published in (ldlidar driver frame_id); x forward, z up, at the optical centre -->
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="${lidar_frame}"/>
+    <origin xyz="${lidar_x} 0 ${lidar_base_z+lidar_scan_dz}" rpy="0 0 0"/>
+  </joint>
+  <link name="${lidar_frame}"/>
+
+  <!-- =============================== phone mount =============================== -->
+  <joint name="phone_bracket_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="phone_bracket"/>
+    <origin xyz="${phone_bracket_x+0.029} 0 ${frame_top_z+0.030}"/>
+  </joint>
+  <link name="phone_bracket">
+    <visual><geometry><box size="0.058 0.12 0.060"/></geometry><material name="petg_orange"/></visual>
+  </link>
+  <!-- cradle + phone as one tilted slab, camera corner at the front-left -->
+  <joint name="phone_cradle_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="phone_cradle"/>
+    <origin xyz="${phone_bracket_x+0.032} 0 ${frame_top_z+0.052}" rpy="0 ${-phone_tilt} 0"/>
+  </joint>
+  <link name="phone_cradle">
+    <visual><origin xyz="0 0 0.0025"/><geometry><box size="0.0785 0.16 0.005"/></geometry><material name="petg_blue"/></visual>
+    <visual><origin xyz="0 0 0.0095"/><geometry><box size="0.072 0.15 0.0085"/></geometry><material name="phone"/></visual>
+  </link>
+  <!-- phone_mount.xacro adds phone_mount -> phone_optical -> phone_link at phone_xyz / phone_tilt -->
+  <joint name="phone_mount_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="phone_mount"/>
+    <origin xyz="${phone_xyz}" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+  <link name="phone_mount"/>
+  <joint name="phone_optical_joint" type="fixed">
+    <parent link="phone_mount"/>
+    <child link="phone_optical"/>
+    <origin xyz="0 0 0" rpy="${-phone_tilt} 0 0"/>
+  </joint>
+  <link name="phone_optical"/>
+  <joint name="phone_link_joint" type="fixed">
+    <parent link="phone_optical"/>
+    <child link="phone_link"/>
+    <origin xyz="0 0 0" rpy="${pi} 0 ${-pi/2}"/>
+  </joint>
+  <link name="phone_link"/>
+
+</robot>

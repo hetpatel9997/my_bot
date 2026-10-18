@@ -1,0 +1,10 @@
+# scripts/arm_joint_state_stub.py: fixed /joint_states for joints without a driver (see the script).
+# Arm: 0 = straight up (weedbot_arm.xacro). Caster: the real robot's swivel + wheel joints
+# (weedbot_body.xacro) are not measured; 0 only gives RViz a transform. In Gazebo the caster is a
+# fixed ball, so robot_state_publisher ignores those two names there.
+# When the servo driver exists it publishes the four arm joints itself: remove them from this list.
+arm_joint_state_stub:
+  ros__parameters:
+    joints: [arm_base_yaw, shoulder_pitch, elbow_pitch, wrist_pitch, caster_swivel_joint, caster_wheel_joint]
+    positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    rate_hz: 5.0

@@ -4,7 +4,7 @@ ldlidar_node:
   ros__parameters:
     product_name: LDLiDAR_LD19     # LD06 and LD19 share the same protocol; LD19 mode is what worked before
     topic_name: scan
-    frame_id: laser_frame          # must match the link in description/lidar.xacro (no extra static TF)
+    frame_id: laser_frame          # must match lidar_frame in description/weedbot_properties.xacro (no extra static TF)
     port_name: /dev/ldlidar        # udev symlink (99-ldlidar.rules) -> ttyUSB0/1, survives replugging
     port_baudrate: 230400
     laser_scan_dir: true           # counter-clockwise
