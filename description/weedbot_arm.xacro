@@ -18,10 +18,25 @@
 
   <!-- Gazebo has no servos for the arm yet: with revolute joints the arm collapsed under gravity
        (forearm hanging through the LiDAR scan plane) while TF still showed it straight up. In sim
-       the five joints are fixed at 0 (= what arm_joint_state_stub.py reports); on the robot they are
-       servo joints. Give them a simulated position controller before moving the arm in sim. -->
-  <xacro:if value="$(arg sim_mode)"><xacro:property name="arm_joint_type" value="fixed"/></xacro:if>
-  <xacro:unless value="$(arg sim_mode)"><xacro:property name="arm_joint_type" value="revolute"/></xacro:unless>
+       the five joints are FIXED in the parked pose (arm_park_*, the joint origins carry the angles;
+       = what arm_joint_state_stub.py reports on the robot); on the robot they are servo joints at 0
+       in the origins. Give them a simulated position controller before moving the arm in sim. -->
+  <xacro:if value="$(arg sim_mode)">
+    <xacro:property name="arm_joint_type" value="fixed"/>
+    <xacro:property name="q_yaw" value="${arm_park_yaw}"/>
+    <xacro:property name="q_shoulder" value="${arm_park_shoulder}"/>
+    <xacro:property name="q_elbow" value="${arm_park_elbow}"/>
+    <xacro:property name="q_wrist" value="${arm_park_wrist}"/>
+    <xacro:property name="q_roll" value="${arm_park_roll}"/>
+  </xacro:if>
+  <xacro:unless value="$(arg sim_mode)">
+    <xacro:property name="arm_joint_type" value="revolute"/>
+    <xacro:property name="q_yaw" value="0"/>
+    <xacro:property name="q_shoulder" value="0"/>
+    <xacro:property name="q_elbow" value="0"/>
+    <xacro:property name="q_wrist" value="0"/>
+    <xacro:property name="q_roll" value="0"/>
+  </xacro:unless>
 
   <xacro:property name="servo_x" value="0.0407"/>
   <xacro:property name="servo_y" value="0.0197"/>
@@ -80,7 +95,7 @@
   <joint name="arm_base_yaw" type="${arm_joint_type}">
     <parent link="arm_base"/>
     <child link="arm_turret"/>
-    <origin xyz="0 0 ${arm_plate_t/2}"/>
+    <origin xyz="0 0 ${arm_plate_t/2}" rpy="0 0 ${q_yaw}"/>
     <axis xyz="0 0 1"/>
     <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
   </joint>
@@ -100,7 +115,7 @@
   <joint name="shoulder_pitch" type="${arm_joint_type}">
     <parent link="arm_turret"/>
     <child link="upper_arm"/>
-    <origin xyz="0 0 ${arm_l1}"/>
+    <origin xyz="0 0 ${arm_l1}" rpy="0 ${q_shoulder} 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
   </joint>
@@ -110,7 +125,7 @@
   <joint name="elbow_pitch" type="${arm_joint_type}">
     <parent link="upper_arm"/>
     <child link="forearm"/>
-    <origin xyz="0 0 ${arm_l2}"/>
+    <origin xyz="0 0 ${arm_l2}" rpy="0 ${q_elbow} 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
   </joint>
@@ -120,13 +135,13 @@
   <joint name="wrist_pitch" type="${arm_joint_type}">
     <parent link="forearm"/>
     <child link="wrist"/>
-    <origin xyz="0 0 ${arm_l3}"/>
+    <origin xyz="0 0 ${arm_l3}" rpy="0 ${q_wrist} 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
   </joint>
   <link name="wrist">
     <visual><origin xyz="0 0 ${wrist_roll_z/2}"/><geometry><box size="${link_w} ${link_w} ${wrist_roll_z}"/></geometry><material name="petg_blue"/></visual>
-    <collision><origin xyz="0 0 ${wrist_roll_z/2}"/><geometry><box size="${servo_x} ${servo_y} ${wrist_roll_z+servo_z}"/></geometry></collision>
+    <collision><origin xyz="0 0 ${wrist_roll_z/2}"/><geometry><box size="${servo_x} ${arm_scan_w} ${wrist_roll_z+servo_z}"/></geometry></collision>
     <inertial><origin xyz="0 0 ${wrist_roll_z/2}"/><mass value="0.1"/><xacro:box_inertia m="0.1" x="${servo_x}" y="${servo_y}" z="${wrist_roll_z}"/></inertial>
   </link>
 
@@ -142,7 +157,7 @@
   <joint name="wrist_roll" type="${arm_joint_type}">
     <parent link="wrist"/>
     <child link="nozzle"/>
-    <origin xyz="0 0 ${wrist_roll_z}"/>
+    <origin xyz="0 0 ${wrist_roll_z}" rpy="0 0 ${q_roll}"/>
     <axis xyz="0 0 1"/>
     <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
   </joint>

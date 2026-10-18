@@ -24,8 +24,9 @@
                above (farthest tank corner 0.130 m from the laser). With 0.05 the backward rays started
                above the tank top (2.4 cm below the scan plane) and Gazebo's ray-box test reported
                flickering false hits at the tank's rear edge (0.052 m) whenever the robot pitched a
-               hair nose-up. Everything within 0.14 m is inside scan_self_filter's box anyway. The arm
-               (0.256 m behind) still shows up like on the real LD06 (min range 0.02). -->
+               hair nose-up. Everything within 0.14 m is inside scan_self_filter's box anyway. The
+               parked arm still gives the real ~32 deg sector behind; its wrist's near face (0.136 m)
+               is just inside 0.14, so the sim reports the far face (0.176 m): filtered either way. -->
           <min>0.14</min>
           <max>12</max>
           <resolution>0.01</resolution>

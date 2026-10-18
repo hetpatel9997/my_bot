@@ -22,6 +22,8 @@ def generate_launch_description():
         DeclareLaunchArgument('sim_mode', default_value='false'),
         Node(package='robot_state_publisher', executable='robot_state_publisher',
              parameters=[{'robot_description': robot_description}]),
-        Node(package='joint_state_publisher_gui', executable='joint_state_publisher_gui'),
+        # sliders start in the parked pose (as arm_joint_state_stub.yaml), not straight up
+        Node(package='joint_state_publisher_gui', executable='joint_state_publisher_gui',
+             parameters=[{'zeros': {'elbow_pitch': 1.5707963, 'wrist_pitch': 1.5707963}}]),
         Node(package='rviz2', executable='rviz2', arguments=['-d', rviz_cfg] if os.path.exists(rviz_cfg) else []),
     ])

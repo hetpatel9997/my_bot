@@ -247,23 +247,28 @@ Read freely; ask the owner before editing, disabling, restarting, or deleting an
   base plate set into the top cover. No lidar tower since v19 (v17 had one at the rear top).
 - Heights above the ground: deck (top of the bottom rails) 0.0905, top frame 0.2105..0.2305, top cover
   0.2366 (= top of the body shell), arm plate 0.2305..0.2366 (yaw joint 0.2366), phone camera 0.148
-  (x 0.224, y +0.050), caster swivel 0.152, stem top 0.221, tank 0.2305..0.3544, puck 0.3474..0.3554
-  (as given: its bottom is 7 mm below the tank top), LD06 bottom 0.3554 -> scan plane (laser_frame)
-  0.378, spray_tip 0.638 with the arm straight up.
+  (x 0.224, y +0.050), caster swivel 0.152, stem top 0.221, tank 0.2305..0.3474 (filler cap to 0.3604,
+  not modelled), puck 0.3474..0.3554 on the tank top, LD06 bottom 0.3554 -> scan plane (laser_frame)
+  0.378. Arm parked (CAD v19): shoulder 0.30725, elbow 0.40725, wrist axis x 0.0934 at 0.40725,
+  nozzle tip pointing down at x 0.0934, 0.27625; arm top 0.448 in CAD (model 0.429: smaller servo
+  boxes). Straight up the spray_tip would be at 0.638.
 - Names kept: base_link, base_footprint, laser_frame, left_wheel_joint, right_wheel_joint, imu_link,
   phone_optical, phone_link. `camera_link` / `camera_link_optical` are GONE (the phone is the camera):
   the uncommitted W1 `fake_weed_detector.py` still uses camera_link_optical + /camera/image_raw from
   the old Gazebo camera, so W1 needs phone_optical + a simulated phone camera before it runs again;
   the `sim_camera` launch arg is still accepted but does nothing.
 - Arm joints `arm_base_yaw`, `shoulder_pitch`, `elbow_pitch`, `wrist_pitch`, `wrist_roll` (axis to axis
-  0.0707 / 0.100 / 0.100 / 0.131; wrist_roll sits 0.0737 along the last link, axis along the link,
+  0.07065 (from the arm base underside = yaw joint, on the top cover) / 0.100 / 0.100 / 0.131; wrist_roll sits 0.0737 along the last link, axis along the link,
   child link `nozzle` -> `spray_tip`). -90..+90 deg each, 0 = straight up, + pitch tilts forward,
   + yaw = counterclockwise seen from above. The yaw servo hangs under the plate (inside the body)
-  0.0224 behind the axis and drives a gear (yaw joint stays at arm_x). In SIM the arm joints
-  are FIXED at 0: with no simulated servos the revolute joints let the arm collapse through the LiDAR
+  0.0224 behind the axis and drives a gear (yaw joint stays at arm_x). PARKED POSE (CAD v19,
+  `arm_park_*` in weedbot_properties.xacro): elbow +90 deg (forearm forward, horizontal), wrist +90 deg
+  (nozzle pointing down), others 0. In SIM the arm joints are FIXED in that pose (the joint origins
+  carry the angles): with no simulated servos revolute joints let the arm collapse through the LiDAR
   plane. Add a Gazebo position controller before moving the arm in sim.
   `scripts/arm_joint_state_stub.py` (`config/arm_joint_state_stub.yaml`, started by launch_robot and
-  launch_sim) publishes the five arm joints at 0 on /joint_states at 5 Hz, plus the real caster's
+  launch_sim) publishes the five arm joints in the parked pose on /joint_states at 5 Hz (view_robot's
+  sliders start there too), plus the real caster's
   `caster_swivel_joint` / `caster_wheel_joint` (TF only; ignored in sim, where the caster is a fixed
   frictionless ball). The servo driver replaces the arm part later (same joint names).
   RViz + sliders: `ros2 launch my_bot view_robot.launch.py` (`config/view_robot.rviz`, fixed frame
@@ -276,9 +281,10 @@ Read freely; ask the owner before editing, disabling, restarting, or deleting an
   as a `--param robot_description:=...` argument that is parsed as YAML, so a "word: " in any comment
   stopped the wheel controllers (and launch_sim / launch_robot did not start at all from commit
   3b156e3, the phone_mount.xacro comment, until the URDF v2 commit).
-- LiDAR self-hits (v19): only the arm is in the scan plane (0.256 m behind the LD06): ~32 deg blind
-  sector straight behind on the real robot; in the sim the arm is a 2 cm bar (6 deg). Arm moved out
-  of the parked pose (servo driver, later) can cross the scan plane elsewhere. `scan_self_filter.py`
+- LiDAR self-hits (v19): only the parked arm is in the scan plane: the upper arm (0.256 m behind the
+  LD06) and, nearest, the wrist (0.136 m): ~32 deg blind sector straight behind (CAD). The wrist's
+  COLLISION box is widened to that envelope (`arm_scan_w` 0.078) so the sim shows the same 32 deg.
+  The arm moved out of the parked pose (servo driver, later) can cross the scan plane elsewhere. `scan_self_filter.py`
   box (safety.yaml) x -0.11..0.53, y +-0.16 in base_link (the requested laser_filters
   LaserScanBoxFilter, z 0..0.6; laser_filters is not installed, so the existing node does the same in
   2D). It sets self-hits to NaN, not +inf: the costmaps use inf_is_valid, so +inf rays clear the
@@ -298,9 +304,9 @@ Read freely; ask the owner before editing, disabling, restarting, or deleting an
   and the costmaps; and +-16 deg straight behind (the arm) is blind, including the rear of stop_zone
   within ~0.11 m of the centre line (Nav2's BackUp recovery reverses into it). The 2026-10-04 person
   tests (old robot) must be re-run, driving, with the rebuilt robot before it drives under Nav2.
-- Sim test 2026-10-18 v19 (room.world, headless, domain 42, not driven): spawn and controllers OK,
-  robot level (pitch -0.14 deg); raw /scan: 6 self-hit rays at 0.246 m straight behind (the arm), no
-  other gap; /scan_filtered: those 6 are NaN. (The v2 drive test, 0.240 m straight with EKF = wheels,
+- Sim test 2026-10-18 v19, arm parked (room.world, headless, domain 42, not driven): spawn and
+  controllers OK, robot level (pitch -0.14 deg); raw /scan: 32 self-hit rays = 32 deg straight behind
+  (the arm), no other gap; /scan_filtered: those 32 are NaN. Person ahead: as in SAFETY above. (The v2 drive test, 0.240 m straight with EKF = wheels,
   used the old wheel values.)
 
 ## Software stack
