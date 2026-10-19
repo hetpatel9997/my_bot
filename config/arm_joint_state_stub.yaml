@@ -1,5 +1,5 @@
 # scripts/arm_joint_state_stub.py: fixed /joint_states for joints without a driver (see the script).
-# Arm: parked pose from CAD v19 (weedbot_properties.xacro arm_park_*): elbow +90 deg (forearm forward),
+# Arm: parked pose from CAD v21 (weedbot_properties.xacro arm_park_*): elbow +90 deg (forearm forward),
 # wrist +90 deg (nozzle pointing down); 0 would be straight up. Caster: the real robot's swivel + wheel joints
 # (weedbot_body.xacro) are not measured; 0 only gives RViz a transform. In Gazebo the caster is a
 # fixed ball, so robot_state_publisher ignores those two names there.

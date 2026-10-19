@@ -183,19 +183,20 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      # Robot outline (CAD v17, base_link = ground under the rear axle): body shell x -0.073..0.299,
-      # 0.316 wide; tapering forward to the caster nose at x 0.520 (caster wheel trailing forward);
-      # rear corners cut in to x -0.108 (CAD v17; v19 moved the arm base). Farthest point 0.53 m from the axle
-      # (the nose): that is the circle the robot sweeps turning on the spot. Same outline in the
-      # global costmap; zones in safety.yaml. Update together with weedbot_properties.xacro.
-      footprint: "[[0.520, 0.101], [0.299, 0.158], [-0.073, 0.158], [-0.108, 0.080], [-0.108, -0.080], [-0.073, -0.158], [0.299, -0.158], [0.520, -0.101]]"
+      # Robot outline (CAD v21, front = drive-wheel end, base_link = ground under the drive axle):
+      # body shell x -0.299..0.073, 0.316 wide; in front the phone mount (and arm camera) to x 0.175;
+      # behind, tapering to the caster swing at x -0.520 (caster wheel trailing behind the swivel).
+      # Farthest point 0.53 m from the axle (the caster tail): that is the circle the robot sweeps
+      # turning on the spot. Same outline in the global costmap; zones in safety.yaml. Update
+      # together with weedbot_properties.xacro.
+      footprint: "[[0.175, 0.080], [0.073, 0.158], [-0.299, 0.158], [-0.520, 0.101], [-0.520, -0.101], [-0.299, -0.158], [0.073, -0.158], [0.175, -0.080]]"
       footprint_padding: 0.01
       transform_tolerance: 0.5         # keep laser scans that arrive a little late (busy CPU)
       plugins: ["obstacle_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 6.0    # steep fall-off keeps narrow gaps usable
-        inflation_radius: 0.55      # >= farthest footprint point 0.53 + padding (needed for footprint collision checks)
+        inflation_radius: 0.55      # >= farthest footprint point 0.53 (+ padding 0.54; needed for footprint collision checks)
       obstacle_layer:                  # plain 2D layer: a 2D LiDAR needs no 3D voxels (less CPU)
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
@@ -227,11 +228,10 @@ global_costmap:
       robot_base_frame: base_link
       use_sim_time: True
       # Same footprint as the local costmap (robot_radius off, 2026-10-18). Note: SmacPlanner2D
-      # plans for a point and only keeps the INSCRIBED radius from obstacles, 0.118 m here (rear
-      # edge at x -0.108 + padding), so it may plan through gaps narrower than the 0.316 m robot;
-      # RPP's footprint check in the local costmap then stops it. A robot_radius of 0.168 (half
-      # width + padding) instead would make the planner use only gaps the robot fits through.
-      footprint: "[[0.520, 0.101], [0.299, 0.158], [-0.073, 0.158], [-0.108, 0.080], [-0.108, -0.080], [-0.073, -0.158], [0.299, -0.158], [0.520, -0.101]]"
+      # plans for a point and only keeps the INSCRIBED radius from obstacles: 0.168 m here (the
+      # sides, half width 0.158 + padding), so its paths only use gaps the 0.316 m wide robot fits
+      # through; turning room (0.54 m circle) is left to RPP's footprint check in the local costmap.
+      footprint: "[[0.175, 0.080], [0.073, 0.158], [-0.299, 0.158], [-0.520, 0.101], [-0.520, -0.101], [-0.299, -0.158], [0.073, -0.158], [0.175, -0.080]]"
       footprint_padding: 0.01
       transform_tolerance: 0.5         # keep laser scans that arrive a little late (busy CPU)
       resolution: 0.05

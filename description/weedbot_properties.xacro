@@ -2,14 +2,15 @@
 <!--
   ONE place for every measurement of the real WeedBot. Everything else (body, arm, LD06,
   phone mount, Gazebo) reads from here. Units: metres and radians. Frame: x forward, y left, z up.
-  base_link = on the GROUND, under the centre of the rear (drive) axle.
+  FRONT = the DRIVE-WHEEL end (arm and phone); the caster is at the BACK (CAD v21; up to v19 the
+  caster end was called the front). base_link = on the GROUND, under the centre of the drive axle.
 
-  Source: FreeCAD "project 101 v17" (2026-10-18), arm base and LD06 moved per v19. Values still marked MEASURE are estimates
-  (IMU position in imu.xacro, masses other than the tank, caster trail, arm yaw range).
+  Source: FreeCAD "project 101 v21" (2026-10-18, final for now). Values still marked MEASURE are
+  estimates (IMU position in imu.xacro, masses other than the tank, caster trail, arm yaw range).
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- drive wheels (5 inch) -->
+  <!-- drive wheels (5 inch), at the front -->
   <!-- radius / separation must equal diff_cont in config/my_controllers.yaml (and wheel_separation /
        wheel_diameter in gazebo_control.xacro): change them together. -->
   <xacro:property name="wheel_radius"      value="0.0635"/>
@@ -20,9 +21,9 @@
   <xacro:property name="left_wheel_joint"  value="left_wheel_joint"/>
   <xacro:property name="right_wheel_joint" value="right_wheel_joint"/>
 
-  <!-- bottom aluminium frame (NXP platform), relative to the rear axle -->
-  <xacro:property name="frame_x_rear"   value="-0.0668"/>
-  <xacro:property name="frame_x_front"  value="0.2932"/>
+  <!-- bottom aluminium frame (NXP platform), relative to the drive axle: it reaches back toward the caster -->
+  <xacro:property name="frame_x_rear"   value="-0.2932"/>
+  <xacro:property name="frame_x_front"  value="0.0668"/>
   <xacro:property name="frame_width"    value="0.140"/>    <!-- outside width of the side rails -->
   <xacro:property name="frame_bottom_z" value="0.0705"/>   <!-- underside of the rails above the ground -->
   <xacro:property name="frame_top_z"    value="0.0905"/>   <!-- top of the rails (20 mm extrusion) = the "deck" -->
@@ -34,89 +35,109 @@
   <xacro:property name="top_frame_top_z"    value="0.2305"/>
   <xacro:property name="top_cover_z"        value="0.2366"/>  <!-- top of the cover plate -->
 
-  <!-- outer body shell (looks + collision; the Nav2 footprint follows it, plus the caster nose) -->
-  <xacro:property name="body_x_rear"   value="-0.0728"/>
-  <xacro:property name="body_x_front"  value="0.2992"/>
+  <!-- outer body shell (looks + collision; the Nav2 footprint follows it, plus the phone mount in
+       front and the caster swing behind) -->
+  <xacro:property name="body_x_rear"   value="-0.2992"/>
+  <xacro:property name="body_x_front"  value="0.0728"/>
   <xacro:property name="body_width"    value="0.316"/>
   <xacro:property name="body_bottom_z" value="0.040"/>
   <xacro:property name="body_top_z"    value="0.2366"/>
   <xacro:property name="body_mass"     value="0.5"/>      <!-- MEASURE -->
 
-  <!-- front caster (Krowne 5 inch stem caster) on a bracket in front of the frame: the robot's nose -->
-  <xacro:property name="caster_x"            value="0.419"/>   <!-- swivel axis -->
+  <!-- caster (Krowne 5 inch stem caster) on a bracket BEHIND the frame: the robot's tail -->
+  <xacro:property name="caster_x"            value="-0.419"/>  <!-- swivel axis, behind the axle -->
   <xacro:property name="caster_mount_z"      value="0.2214"/>  <!-- top of the stem -->
   <xacro:property name="caster_swivel_z"     value="0.1524"/>  <!-- swivel bearing -->
   <xacro:property name="caster_wheel_radius" value="0.0631"/>
   <xacro:property name="caster_wheel_width"  value="0.0305"/>
-  <xacro:property name="caster_trail"        value="0.037"/>   <!-- MEASURE (estimate): swivel axis to wheel axle, horizontal -->
+  <xacro:property name="caster_trail"        value="0.037"/>   <!-- MEASURE (estimate): swivel axis to wheel axle, horizontal;
+                                                                    driving forward the wheel trails behind: tail at x -0.520 -->
 
   <!-- printed gear cheeks beside the axle gears (visual only) -->
   <xacro:property name="cheek_y" value="0.0235"/>
 
-  <!-- LD06 on top of the spray tank (v19; no lidar tower any more), on a puck. The scan plane is
-       above everything except the arm: ~32 deg blind sector straight behind (the arm). -->
-  <xacro:property name="lidar_x"        value="0.2495"/>    <!-- LD06 centre -->
+  <!-- LD06 on top of the spray tank at the back, on a puck. The scan plane is above everything
+       except the arm in front of it: ~+-10 deg blind straight ahead (the phone camera looks there). -->
+  <xacro:property name="lidar_x"        value="-0.2495"/>   <!-- LD06 centre -->
   <xacro:property name="lidar_base_z"   value="0.3554"/>    <!-- bottom of the LD06; scan plane = base + lidar_scan_dz = 0.3784 -->
   <xacro:property name="lidar_dia"      value="0.0386"/>
   <xacro:property name="lidar_h"        value="0.035"/>
   <xacro:property name="lidar_scan_dz"  value="0.023"/>     <!-- LD06 optical centre above its bottom face -->
+  <xacro:property name="lidar_yaw"      value="0.0"/>       <!-- the LD06's 0 deg mark points forward (toward the arm).
+                                                                 Mounted the other way round: ${pi} -->
   <xacro:property name="lidar_frame"    value="laser_frame"/>   <!-- must match the ldlidar driver frame_id -->
-  <xacro:property name="puck_size"      value="0.050"/>     <!-- square puck under the LD06, on the tank top -->
+  <xacro:property name="puck_size"      value="0.050"/>     <!-- square puck under the LD06 -->
   <xacro:property name="puck_h"         value="0.008"/>
-  <xacro:property name="puck_z0"        value="0.3474"/>    <!-- puck bottom; puck top = LD06 bottom -->
+  <xacro:property name="puck_z0"        value="0.3474"/>    <!-- puck bottom (7 mm below the tank top 0.3544: set into it);
+                                                                 puck top = LD06 bottom -->
 
-  <!-- spray tank on the top frame at the front, with a sump below it (top of the sump = tank_z0).
-       Carries the LD06 (below the scan plane since v19). -->
-  <xacro:property name="tank_x0"   value="0.198"/>
-  <xacro:property name="tank_x1"   value="0.294"/>
+  <!-- spray tank on the top frame at the back, with a sump below it (top of the sump = tank_z0) -->
+  <xacro:property name="tank_x0"   value="-0.294"/>
+  <xacro:property name="tank_x1"   value="-0.198"/>
   <xacro:property name="tank_w"    value="0.239"/>
   <xacro:property name="tank_z0"   value="0.2305"/>
-  <xacro:property name="tank_z1"   value="0.3474"/>   <!-- tank top (v19) = puck bottom; the filler cap reaches 0.3604
-                                                          (not modelled: position not given, below the scan plane) -->
-  <xacro:property name="sump_x0"   value="0.203"/>
-  <xacro:property name="sump_x1"   value="0.271"/>
+  <xacro:property name="tank_z1"   value="0.3544"/>   <!-- tank top; the filler cap reaches 0.3604 (not modelled:
+                                                          position not given, below the scan plane) -->
+  <xacro:property name="sump_x0"   value="-0.271"/>
+  <xacro:property name="sump_x1"   value="-0.203"/>
   <xacro:property name="sump_w"    value="0.195"/>
   <xacro:property name="sump_z0"   value="0.1574"/>
   <xacro:property name="tank_mass" value="3.6"/>
 
-  <!-- robotic arm: 4 x MG996R pitch/yaw (40.7 x 19.7 x 42.9 mm, 180 deg) + wrist roll -->
-  <xacro:property name="arm_x"          value="-0.0066"/>    <!-- base yaw axis (v19: arm base on the top cover) -->
+  <!-- robotic arm at the front: 4 x MG996R pitch/yaw (40.7 x 19.7 x 42.9 mm, 180 deg) + wrist roll -->
+  <xacro:property name="arm_x"          value="0.0066"/>     <!-- base yaw axis, just in front of the drive axle -->
   <xacro:property name="arm_base_z"     value="0.2305"/>     <!-- underside of the bearing plate set into the cover (= top of the top frame) -->
-  <xacro:property name="arm_plate_t"    value="0.0061"/>     <!-- plate top = yaw joint = top of the cover 0.2366 = underside of
-                                                                  the turning arm base, which sits on the cover -->
-  <xacro:property name="arm_plate_r"    value="0.060"/>
-  <xacro:property name="arm_yaw_servo_dx" value="-0.0224"/>  <!-- yaw servo under the plate, behind the axis (drives a gear) -->
-  <xacro:property name="arm_l1"         value="0.07065"/>    <!-- arm base underside (yaw joint) to shoulder axis -->
+  <xacro:property name="arm_plate_t"    value="0.0061"/>     <!-- plate top = yaw joint = top of the cover 0.2366 -->
+  <xacro:property name="arm_plate_r"    value="0.0715"/>     <!-- radius of the plate and of the round base housing on it -->
+  <xacro:property name="arm_housing_h"  value="0.023"/>      <!-- round base housing (turns with the yaw), on the cover -->
+  <xacro:property name="arm_yaw_servo_dx" value="0.0224"/>   <!-- yaw servo under the plate, in front of the axis (drives a gear);
+                                                                  CAD v17 position, re-expressed for the new front -->
+  <xacro:property name="arm_l1"         value="0.0707"/>     <!-- arm base underside (yaw joint) to shoulder axis -->
   <xacro:property name="arm_l2"         value="0.100"/>      <!-- shoulder axis to elbow axis -->
   <xacro:property name="arm_l3"         value="0.100"/>      <!-- elbow axis to wrist pitch axis -->
   <xacro:property name="arm_l4"         value="0.131"/>      <!-- wrist pitch axis to the spray nozzle tip -->
-  <xacro:property name="wrist_roll_z"   value="0.0737"/>     <!-- wrist pitch axis to the wrist roll joint, along the link -->
+  <xacro:property name="arm_roll_d"     value="0.0737"/>     <!-- wrist pitch axis to the wrist roll joint, along the link -->
   <xacro:property name="servo_limit"    value="${pi/2}"/>   <!-- MG996R: 0..180 deg -> -90..+90 around the centre
                                                                  (MEASURE for arm_base_yaw: its gear changes the range) -->
   <xacro:property name="servo_effort"   value="1.0"/>       <!-- ~11 kg.cm = 1.08 N.m -->
   <xacro:property name="servo_velocity" value="5.0"/>       <!-- rad/s (0.17 s / 60 deg) -->
   <xacro:property name="link_w"         value="0.020"/>
-  <xacro:property name="arm_scan_w"     value="0.078"/>     <!-- width (y) of the wrist COLLISION box: CAD v19 says the parked arm
-                                                                 blocks ~32 deg behind the LD06; the wrist (servo + brackets) is the
-                                                                 nearest arm part in the scan plane, 0.136 m away: 2 x 0.136 x tan 16 deg.
-                                                                 Makes the sim scan match; visuals keep the plain servo boxes. -->
-  <!-- parked pose (CAD v19): upper arm straight up, forearm pointing forward (horizontal), last link
-       pointing down: wrist axis x +0.0934 at 0.40725, nozzle tip at 0.27625. The sim fixes the arm in
-       this pose; config/arm_joint_state_stub.yaml publishes the same angles for the real robot. -->
+  <xacro:property name="arm_scan_w"     value="0.087"/>     <!-- width (y) of the upper arm's COLLISION box: CAD v21 says the parked
+                                                                 arm blocks ~+-10 deg straight ahead of the LD06; the upper arm (with
+                                                                 servos + brackets) is the nearest arm part in the scan plane, its back
+                                                                 face 0.246 m from the LD06: 2 x 0.246 x tan 10 deg.
+                                                                 Makes the sim scan match; visuals keep the plain bar. -->
+  <!-- parked pose (CAD v21): upper arm straight up, forearm pointing forward (horizontal), last link
+       pointing down: wrist axis x 0.107 at 0.4073, nozzle tip at x 0.107, 0.276. The sim fixes the arm
+       in this pose; config/arm_joint_state_stub.yaml publishes the same angles for the real robot. -->
   <xacro:property name="arm_park_yaw"      value="0.0"/>
   <xacro:property name="arm_park_shoulder" value="0.0"/>
   <xacro:property name="arm_park_elbow"    value="${pi/2}"/>
   <xacro:property name="arm_park_wrist"    value="${pi/2}"/>
   <xacro:property name="arm_park_roll"     value="0.0"/>
 
-  <!-- phone mount (printed cradle + wedge bracket) on the deck at the front. May move to the nose. -->
-  <xacro:property name="phone_bracket_x" value="0.1882"/>   <!-- rear edge of the WedgeBracket base from the rear axle -->
-  <xacro:property name="phone_xyz"  value="0.2244 0.0498 0.1481"/>  <!-- back camera; 0.0498 LEFT of the centre line -->
-  <xacro:property name="phone_tilt" value="${35*pi/180}"/>
+  <!-- phone mount on a shelf on the front of the body: shelf, wedge bracket (drawn as its bounding
+       box), cradle slab tilted like the phone. The camera frames use phone_xyz / phone_tilt. -->
+  <xacro:property name="phone_shelf_x1"   value="0.145"/>    <!-- shelf: from the body front (body_x_front) to here -->
+  <xacro:property name="phone_shelf_w"    value="0.123"/>
+  <xacro:property name="phone_shelf_z0"   value="0.0864"/>
+  <xacro:property name="phone_base_z"     value="0.1424"/>   <!-- top of the shelf = underside of the bracket -->
+  <xacro:property name="phone_bracket_x"  value="0.085"/>    <!-- rear edge of the bracket base -->
+  <xacro:property name="phone_bracket_x1" value="0.158"/>    <!-- front edge of the bracket -->
+  <xacro:property name="phone_bracket_w"  value="0.120"/>
+  <xacro:property name="phone_bracket_z1" value="0.2095"/>
+  <xacro:property name="phone_cradle_x0"  value="0.074"/>    <!-- cradle slab: bounding box x, top, width -->
+  <xacro:property name="phone_cradle_x1"  value="0.158"/>
+  <xacro:property name="phone_cradle_z1"  value="0.225"/>
+  <xacro:property name="phone_cradle_w"   value="0.160"/>
+  <xacro:property name="phone_cradle_t"   value="0.011"/>    <!-- slab thickness: with this the camera (phone_xyz) lies on the
+                                                                  slab's back face (the camera looks through the cradle) -->
+  <xacro:property name="phone_xyz"  value="0.1273 0.0546 0.1941"/>  <!-- back camera; 0.0546 LEFT of the centre line -->
+  <xacro:property name="phone_tilt" value="${35*pi/180}"/>          <!-- camera looks forward and 35 deg down -->
 
   <!-- electronics plate on the deck with the L298Ns under it, for looks + mass -->
-  <xacro:property name="box_x0" value="0.0032"/>
-  <xacro:property name="box_x1" value="0.2232"/>
+  <xacro:property name="box_x0" value="-0.2232"/>
+  <xacro:property name="box_x1" value="-0.0032"/>
   <xacro:property name="box_w"  value="0.140"/>
   <xacro:property name="box_h"  value="0.058"/>
   <xacro:property name="box_mass" value="1.5"/>             <!-- MEASURE -->

@@ -6,7 +6,7 @@ Subscribes /scan, sets every reading whose point lies inside the robot outline p
 (in base_link) to NaN ("no valid reading", like laser_filters' LaserScanBoxFilter), and publishes
 /scan_filtered. Not +inf: the costmaps run with inf_is_valid, which turns +inf into a free-space
 ray out to 3 m, so every self-hit ray would erase real obstacles behind the robot part it hit
-(e.g. everything in the arm's shadow behind the robot). Everything else (costmaps,
+(e.g. everything in the arm's shadow in front of the robot). Everything else (costmaps,
 AMCL, SLAM, collision monitor, /safety_state) uses /scan_filtered, so the robot's own chassis,
 post or wheels never look like an obstacle (in the sim they made the collision monitor stop
 the robot permanently). If this node dies, /scan_filtered stops and the collision monitor
@@ -28,7 +28,7 @@ from tf2_ros import Buffer, TransformListener
 class SelfFilter(Node):
     def __init__(self):
         super().__init__('scan_self_filter')
-        self.declare_parameter('box', [-0.11, 0.53, -0.16, 0.16])
+        self.declare_parameter('box', [-0.53, 0.18, -0.16, 0.16])
         self.declare_parameter('base_frame', 'base_link')
         self.box = [float(v) for v in self.get_parameter('box').value]
         self.base = self.get_parameter('base_frame').value

@@ -2,13 +2,19 @@
 #   twist_mux (/cmd_vel_mux) -> safety_state_node (speed governor, /cmd_vel_capped)
 #     -> collision_monitor -> /diff_cont/cmd_vel_unstamped
 # safety_state_node reads THIS file too and publishes /safety_state (clear | slow | stop).
-# Robot outline (CAD v17/v19, base_link = ground under the rear axle): the Nav2 footprint in
-# nav2_params.yaml, bounding box x -0.108 .. +0.520 (caster nose), y -0.158 .. +0.158.
+# Robot outline (CAD v21, FRONT = drive-wheel end, base_link = ground under the drive axle): the
+# Nav2 footprint in nav2_params.yaml, bounding box x -0.520 (caster tail) .. +0.175 (phone mount),
+# y -0.158 .. +0.158.
 # The coverage path keeps the robot centre >= 0.288 m from walls (straight) and >= 0.66 m where
 # it turns: every zone below is designed not to touch walls along that path.
-# LiDAR (v19): LD06 on the spray tank, scan plane 0.378 m above the ground. It sees all zones ahead
-# and beside the robot, but NOTHING LOWER THAN 0.378 m (low boxes, pets, edging, pots). Blind sector
-# ~32 deg straight behind (the arm): the rear of stop_zone is blind within ~0.11 m of the centre line.
+# LiDAR (v21): LD06 on the spray tank at the BACK (x -0.2495), scan plane 0.378 m above the ground.
+# It sees NOTHING LOWER THAN 0.378 m (low boxes, pets, edging, pots). BLIND WEDGE STRAIGHT AHEAD:
+# the parked arm hides +-10 deg around the centre line, measured from the LD06, so the wedge widens
+# with distance (0.15-0.18 m wide at the stop band; as wide as the robot, 0.32 m, at x 0.65 = 0.47 m
+# ahead of the front).
+# Anything narrower than the wedge on the centre line (post, pole, leg) is invisible; a 0.4 m wide
+# person straight ahead is only seen once its centre is closer than x ~0.9 (only its edges then).
+# The phone camera looks there but is NOT part of this safety chain.
 collision_monitor:
   ros__parameters:
     base_frame_id: "base_link"
@@ -20,25 +26,26 @@ collision_monitor:
     base_shift_correction: True
     stop_pub_timeout: 2.0
     polygons: ["StopBand", "SlowCorridor"]
-    # Stop: band from the caster nose (0.52; scan_self_filter removes everything up to 0.53) to
+    # Stop: band from the phone mount (0.175; scan_self_filter removes everything up to 0.18) to
     # 0.10 m ahead, robot-wide (0.32 m). A person/obstacle in front stops the robot ~0.10 m short
-    # (once the front is visible, see BLIND SPOT above). Walls beside the coverage path (centre
-    # >= 0.288 m from walls, >= 0.66 m where it turns) never enter it: farthest point 0.64 m.
+    # (only what the LD06 sees beside the arm's wedge, see BLIND WEDGE above). Walls beside the
+    # coverage path (centre >= 0.288 m from walls, >= 0.66 m where it turns) never enter it:
+    # farthest point 0.32 m.
     # (A full "outline + 0.10 m" box stopped the robot next to walls all the time; Nav2's
     # "approach" mode was tried and never triggered in this Humble version.) Collisions while
     # turning on the spot are covered by RPP's footprint collision check on the local costmap.
     StopBand:
       type: "polygon"
-      points: [0.62, 0.16, 0.62, -0.16, 0.53, -0.16, 0.53, 0.16]
+      points: [0.275, 0.16, 0.275, -0.16, 0.18, -0.16, 0.18, 0.16]
       action_type: "stop"
       max_points: 2              # 3+ laser points inside -> stop
       visualize: True
       polygon_pub_topic: "polygon_stop"
-    # Slow (40 %): corridor 0.40 m ahead of the caster nose, robot-wide (not the sides, or the
-    # robot would crawl along every wall). Inside the tank's blind cone, see above.
+    # Slow (40 %): corridor 0.40 m ahead of the phone mount, robot-wide (not the sides, or the
+    # robot would crawl along every wall). Its middle is inside the arm's blind wedge, see above.
     SlowCorridor:
       type: "polygon"
-      points: [0.92, 0.16, 0.92, -0.16, 0.53, -0.16, 0.53, 0.16]
+      points: [0.575, 0.16, 0.575, -0.16, 0.18, -0.16, 0.18, 0.16]
       action_type: "slowdown"
       max_points: 2
       slowdown_ratio: 0.4
@@ -51,16 +58,17 @@ collision_monitor:
 
 scan_self_filter:
   ros__parameters:
-    # Robot self-hits (v19: the arm, 0.256 m behind the LD06, ~32 deg). Footprint bounding box
-    # + 0.002-0.01 m; must stay inside stop_zone below. (= laser_filters LaserScanBoxFilter in
-    # base_link, x -0.11..0.53, y -0.16..0.16, z 0..0.6: the scan plane at z 0.378 is inside.)
-    box: [-0.11, 0.53, -0.16, 0.16]
+    # Robot self-hits (v21: the parked arm, 0.25-0.36 m in front of the LD06, ~+-10 deg).
+    # Footprint bounding box + 0.002-0.01 m; must stay inside stop_zone below. (= laser_filters
+    # LaserScanBoxFilter in base_link, x -0.53..0.18, y -0.16..0.16, z 0..0.6: the scan plane at
+    # z 0.378 is inside.)
+    box: [-0.53, 0.18, -0.16, 0.16]
 
 safety_state:
   ros__parameters:
     # stop: anything within the outline (bounding box) + 0.04 m on any side (closer than the
     # coverage path ever gets to walls), slow: anything in the SlowCorridor above, clear: otherwise.
-    stop_zone: [0.56, 0.198, 0.56, -0.198, -0.148, -0.198, -0.148, 0.198]
+    stop_zone: [0.215, 0.198, 0.215, -0.198, -0.56, -0.198, -0.56, 0.198]
     scan_topic: /scan_filtered
     e_stop_topic: /e_stop
     state_topic: /safety_state

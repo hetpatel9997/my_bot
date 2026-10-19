@@ -1,8 +1,9 @@
 <?xml version="1.0"?>
 <!--
-  WeedBot body: bottom + top frame, body shell, rear drive wheels, front stem caster (the nose),
-  electronics plate, spray tank with the LD06 on top (on a puck), and the phone mount. The arm base
-  sits on the top cover (weedbot_arm.xacro); there is no lidar tower since CAD v19.
+  WeedBot body (CAD v21): bottom + top frame, body shell, drive wheels at the FRONT, stem caster at
+  the BACK (the tail), electronics plate, spray tank at the back with the LD06 on top (on a puck),
+  and the phone mount on a shelf on the front. The arm base sits on the top cover at the front
+  (weedbot_arm.xacro); there is no lidar tower.
   Include from robot.urdf.xacro:
       <xacro:include filename="weedbot_properties.xacro"/>
       <xacro:include filename="weedbot_body.xacro"/>
@@ -89,18 +90,18 @@
     </inertial>
   </link>
 
-  <!-- top cover plate from the rear of the top frame to the tank (visual only) -->
+  <!-- top cover plate from the tank to the front of the top frame (visual only) -->
   <joint name="top_cover_joint" type="fixed">
     <parent link="base_link"/>
     <child link="top_cover"/>
-    <origin xyz="${(frame_x_rear+tank_x0)/2} 0 ${(top_frame_top_z+top_cover_z)/2}"/>
+    <origin xyz="${(tank_x1+frame_x_front)/2} 0 ${(top_frame_top_z+top_cover_z)/2}"/>
   </joint>
   <link name="top_cover">
-    <visual><geometry><box size="${tank_x0-frame_x_rear} ${top_frame_width} ${top_cover_z-top_frame_top_z}"/></geometry><material name="petg_blue"/></visual>
+    <visual><geometry><box size="${frame_x_front-tank_x1} ${top_frame_width} ${top_cover_z-top_frame_top_z}"/></geometry><material name="petg_blue"/></visual>
   </link>
 
   <!-- body shell around frame, wheels and electronics (see-through in RViz). Its outline is the
-       Nav2 footprint behind the caster (nav2_params.yaml, safety.yaml). -->
+       Nav2 footprint between the phone mount and the caster (nav2_params.yaml, safety.yaml). -->
   <joint name="body_shell_joint" type="fixed">
     <parent link="base_link"/>
     <child link="body_shell"/>
@@ -125,7 +126,7 @@
   </link>
 
   <!-- =============================== spray tank =============================== -->
-  <!-- tank on the top frame at the front + sump below it (sump top = tank bottom). Mass = full tank,
+  <!-- tank on the top frame at the back + sump below it (sump top = tank bottom). Mass = full tank,
        centre of mass at the volume-weighted middle of the two boxes. -->
   <xacro:property name="tank_cx" value="${(tank_x0+tank_x1)/2}"/>
   <xacro:property name="tank_cz" value="${(tank_z0+tank_z1)/2}"/>
@@ -156,7 +157,7 @@
     </inertial>
   </link>
 
-  <!-- =============================== drive wheels =============================== -->
+  <!-- =========================== drive wheels (front) =========================== -->
   <!-- axle on the ground line of base_link: wheel centre at z = wheel_radius -->
   <xacro:macro name="drive_wheel" params="name joint side">
     <joint name="${joint}" type="continuous">
@@ -197,15 +198,15 @@
   <xacro:cheek side="1"/>
   <xacro:cheek side="-1"/>
 
-  <!-- =============================== front caster (the nose) =============================== -->
-  <!-- bracket from the top frame forward to the stem socket (shape approximate, visual only) -->
+  <!-- =============================== caster at the back (the tail) =============================== -->
+  <!-- bracket from the frame back to the stem socket (shape approximate, visual only) -->
   <joint name="caster_bracket_joint" type="fixed">
     <parent link="base_link"/>
     <child link="caster_bracket"/>
-    <origin xyz="${(frame_x_front+caster_x+0.02)/2} 0 ${caster_mount_z-0.01}"/>
+    <origin xyz="${(frame_x_rear+caster_x-0.02)/2} 0 ${caster_mount_z-0.01}"/>
   </joint>
   <link name="caster_bracket">
-    <visual><geometry><box size="${caster_x+0.02-frame_x_front} 0.04 0.02"/></geometry><material name="petg_orange"/></visual>
+    <visual><geometry><box size="${frame_x_rear-caster_x+0.02} 0.04 0.02"/></geometry><material name="petg_orange"/></visual>
   </link>
   <!-- stem socket from the swivel bearing up to the stem top -->
   <joint name="caster_socket_joint" type="fixed">
@@ -232,7 +233,8 @@
     <gazebo reference="caster_wheel"><material>Gazebo/Black</material><mu1 value="0.001"/><mu2 value="0.001"/></gazebo>
   </xacro:if>
   <xacro:unless value="$(arg sim_mode)">
-    <!-- real robot: swivel bearing, fork trailing behind the swivel axis, wheel -->
+    <!-- real robot: swivel bearing, fork trailing behind the swivel axis (-x: driving forward the
+         wheel trails toward the back, tail at caster_x - caster_trail - wheel radius = -0.519), wheel -->
     <xacro:property name="caster_drop" value="${caster_swivel_z-caster_wheel_radius}"/>
     <joint name="caster_swivel_joint" type="continuous">
       <parent link="base_link"/>
@@ -273,8 +275,8 @@
   </xacro:unless>
 
   <!-- =============================== LD06 on the spray tank =============================== -->
-  <!-- puck on the tank top, LD06 on the puck. In the scan plane (0.378) only the arm: ~32 deg blind
-       sector straight behind (removed by scan_self_filter). -->
+  <!-- puck on the tank top, LD06 on the puck. In the scan plane (0.378) only the arm, in front of the
+       LD06: ~+-10 deg blind straight ahead (removed by scan_self_filter). -->
   <joint name="lidar_puck_joint" type="fixed">
     <parent link="base_link"/>
     <child link="lidar_puck"/>
@@ -295,40 +297,45 @@
     <collision><geometry><cylinder radius="${lidar_dia/2}" length="${lidar_h}"/></geometry></collision>
     <inertial><mass value="0.05"/><xacro:cyl_inertia m="0.05" r="${lidar_dia/2}" h="${lidar_h}"/></inertial>
   </link>
-  <!-- the frame the scan is published in (ldlidar driver frame_id); x forward, z up, at the optical centre -->
+  <!-- the frame the scan is published in (ldlidar driver frame_id); x = the LD06's 0 deg mark (forward,
+       lidar_yaw 0), z up, at the optical centre -->
   <joint name="laser_joint" type="fixed">
     <parent link="base_link"/>
     <child link="${lidar_frame}"/>
-    <origin xyz="${lidar_x} 0 ${lidar_base_z+lidar_scan_dz}" rpy="0 0 0"/>
+    <origin xyz="${lidar_x} 0 ${lidar_base_z+lidar_scan_dz}" rpy="0 0 ${lidar_yaw}"/>
   </joint>
   <link name="${lidar_frame}"/>
 
   <!-- =============================== phone mount =============================== -->
-  <!-- bracket + cradle drawn from phone_bracket_x (approximate); the camera frame uses phone_xyz -->
+  <!-- shelf on the front of the body, wedge bracket on it (drawn as its bounding box), cradle slab
+       tilted like the phone (perpendicular to the camera axis), visual only -->
+  <joint name="phone_shelf_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="phone_shelf"/>
+    <origin xyz="${(body_x_front+phone_shelf_x1)/2} 0 ${(phone_shelf_z0+phone_base_z)/2}"/>
+  </joint>
+  <link name="phone_shelf">
+    <visual><geometry><box size="${phone_shelf_x1-body_x_front} ${phone_shelf_w} ${phone_base_z-phone_shelf_z0}"/></geometry><material name="petg_orange"/></visual>
+  </link>
   <joint name="phone_bracket_joint" type="fixed">
     <parent link="base_link"/>
     <child link="phone_bracket"/>
-    <origin xyz="${phone_bracket_x+0.029} 0 ${frame_top_z+0.030}"/>
+    <origin xyz="${(phone_bracket_x+phone_bracket_x1)/2} 0 ${(phone_base_z+phone_bracket_z1)/2}"/>
   </joint>
   <link name="phone_bracket">
-    <visual><geometry><box size="0.058 0.12 0.060"/></geometry><material name="petg_orange"/></visual>
+    <visual><geometry><box size="${phone_bracket_x1-phone_bracket_x} ${phone_bracket_w} ${phone_bracket_z1-phone_base_z}"/></geometry><material name="petg_orange"/></visual>
   </link>
-  <!-- cradle + phone as one tilted slab, camera corner at the front-left -->
+  <!-- cradle: slab x = thickness, z = along the phone (leaning forward by phone_tilt from vertical);
+       placed by its bounding box (x phone_cradle_x0..x1, top phone_cradle_z1) -->
+  <xacro:property name="cradle_l" value="${(phone_cradle_x1-phone_cradle_x0-phone_cradle_t*cos(phone_tilt))/sin(phone_tilt)}"/>
   <joint name="phone_cradle_joint" type="fixed">
     <parent link="base_link"/>
     <child link="phone_cradle"/>
-    <origin xyz="${phone_bracket_x+0.032} 0 ${frame_top_z+0.052}" rpy="0 ${-phone_tilt} 0"/>
+    <origin xyz="${(phone_cradle_x0+phone_cradle_x1)/2} 0 ${phone_cradle_z1-(cradle_l*cos(phone_tilt)+phone_cradle_t*sin(phone_tilt))/2}"
+            rpy="0 ${phone_tilt} 0"/>
   </joint>
   <link name="phone_cradle">
-    <visual><origin xyz="0 0 0.0025"/><geometry><box size="0.0785 0.16 0.005"/></geometry><material name="petg_blue"/></visual>
-  </link>
-  <joint name="phone_body_joint" type="fixed">
-    <parent link="phone_cradle"/>
-    <child link="phone_body"/>
-    <origin xyz="0 0 0.0095"/>
-  </joint>
-  <link name="phone_body">
-    <visual><geometry><box size="0.072 0.15 0.0085"/></geometry><material name="phone"/></visual>
+    <visual><geometry><box size="${phone_cradle_t} ${phone_cradle_w} ${cradle_l}"/></geometry><material name="petg_blue"/></visual>
   </link>
   <!-- phone_mount -> phone_optical -> phone_link at phone_xyz / phone_tilt (as phone_mount.xacro) -->
   <joint name="phone_mount_joint" type="fixed">
@@ -343,6 +350,16 @@
     <origin xyz="0 0 0" rpy="${-phone_tilt} 0 0"/>
   </joint>
   <link name="phone_optical"/>
+  <!-- the phone itself, behind the camera (screen facing back and up), centred on the robot's centre
+       line; camera ~20 mm from its top and left edges. phone_optical: x right, y down, z = view -->
+  <joint name="phone_body_joint" type="fixed">
+    <parent link="phone_optical"/>
+    <child link="phone_body"/>
+    <origin xyz="${phone_xyz.split()[1]} 0.0158 -0.0041"/>
+  </joint>
+  <link name="phone_body">
+    <visual><geometry><box size="0.1496 0.0715 0.0083"/></geometry><material name="phone"/></visual>
+  </link>
   <joint name="phone_link_joint" type="fixed">
     <parent link="phone_optical"/>
     <child link="phone_link"/>

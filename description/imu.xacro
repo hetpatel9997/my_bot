@@ -3,7 +3,10 @@
 
   <!-- MPU6050 position measured from the point between the drive wheels, in metres.
        Board flat, printed X arrow pointing forward, Y pointing left.
-       If it is rotated, change the rpy here OR the axis_signs in imu_ekf.launch.py, not both. -->
+       If it is rotated, change the rpy here OR the axis_signs in imu_ekf.launch.py, not both.
+       Forward = the drive-wheel end since CAD v21 (it was the caster end): an X arrow pointing at the
+       caster is a 180 deg rotation (rpy 0 0 pi). The EKF only uses the z gyro, which does not change.
+       Position: MEASURE. -->
   <xacro:property name="imu_x" value="0.05"/>
   <xacro:property name="imu_y" value="0.00"/>
   <xacro:property name="imu_z" value="0.10"/>

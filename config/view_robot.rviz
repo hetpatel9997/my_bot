@@ -1,4 +1,4 @@
-# RViz for view_robot.launch.py: fixed frame base_link (on the ground under the rear axle),
+# RViz for view_robot.launch.py: fixed frame base_link (on the ground under the drive axle),
 # RobotModel from /robot_description, TF axes. Grid cells are 0.1 m.
 Panels:
 - Class: rviz_common/Displays
@@ -101,7 +101,7 @@ Visualization Manager:
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.17
+        X: -0.17
         Y: 0
         Z: 0.3
       Focal Shape Fixed Size: true

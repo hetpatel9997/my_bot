@@ -3,15 +3,25 @@
 
     <xacro:unless value="$(arg sim_mode)">
         <ros2_control name="RealRobot" type="system">
+            <!-- CAD v21: the FRONT is now the drive-wheel end (it was the caster end). Nothing was
+                 rewired, so each motor is now on the other side of the robot and "its" forward is
+                 now backward. Both are fixed here, firmware unchanged:
+                 - left/right_wheel_name SWAPPED: the Arduino's LEFT channel (first number of
+                   "m L R" and of "e") drives the wheel that is now on the RIGHT (y -0.088);
+                 - enc_counts_per_rev NEGATIVE: diffdrive_arduino uses rads_per_count =
+                   2*pi/enc_counts_per_rev for the motor command AND the encoder angle, so the
+                   minus sign inverts both motor directions and both encoder signs.
+                 Result: positive left/right_wheel_joint velocity drives toward the arm end.
+                 Check with the wheels off the ground (CLAUDE.md "Drive direction check"). -->
             <hardware>
                 <plugin>diffdrive_arduino/DiffDriveArduinoHardware</plugin>
-                <param name="left_wheel_name">left_wheel_joint</param>
-                <param name="right_wheel_name">right_wheel_joint</param>
+                <param name="left_wheel_name">right_wheel_joint</param>
+                <param name="right_wheel_name">left_wheel_joint</param>
                 <param name="loop_rate">30</param>
                 <param name="device">/dev/ttyACM0</param>
                 <param name="baud_rate">57600</param>
                 <param name="timeout_ms">5000</param>
-                <param name="enc_counts_per_rev">3436</param>
+                <param name="enc_counts_per_rev">-3436</param>
             </hardware>
             <joint name="left_wheel_joint">
                 <command_interface name="velocity">
