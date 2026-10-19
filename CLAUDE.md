@@ -90,7 +90,8 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   the centre); `launch_sim.launch.py world:=... gui:=false`, `online_async_launch.py` (SLAM),
   `map_saver_cli`, `localization_launch.py` + `navigation_launch.py` with `map:=` and
   `use_sim_time:=true`, `coverage.launch.py use_sim_time:=true`, RViz `config/coverage_sim.rviz`.
-  A cold first Gazebo start can exceed spawn_entity's 30 s; rerun.
+  A cold first Gazebo start can exceed spawn_entity's 30 s; rerun. Maps (outside git): `~/dev_ws/room_map.yaml`
+  (2026-10-03, used for AMCL) and `~/dev_ws/room_map_v21.yaml` (2026-10-19, N and E walls clipped).
 - Sim and real share ONE odometry pipeline: `imu_ekf.launch.py` (robot_localization EKF, `ekf.yaml`)
   fuses `/diff_cont/odom` + `/imu/data_raw` and publishes `/odom` + odom->base_link; diff_cont's own
   odom TF is off in both. In Gazebo, `description/imu_sim.xacro` (included only when sim_mode) adds
@@ -107,6 +108,8 @@ CycloneDDS is NOT in use (old XMLs exist, unused).
   mu 1.0:  EKF -1.7 cm, -0.5 deg / -1.2 deg;  wheels -1.7 cm, 0.0 deg / -0.9 deg.
   mu 0.03: EKF -11.6 cm / -0.4 deg;  wheels -11.6 cm / +14.2 deg. The EKF fixes HEADING under slip
   (gyro yaw rate); it cannot fix DISTANCE (only wheel speed is fused), and neither sees sideways slide.
+  It still publishes straight to `/diff_cont/cmd_vel_unstamped` (written before the safety chain):
+  do not use it until it goes through `/cmd_vel_keyboard`.
 - VM performance (2 cores, 3.8 GB, VMware SVGA3D GPU; driver crash traces in the desktop log):
   real-time factor 0.37 with the Gazebo window. Since 2026-10-03 (sim camera off by default,
   room.world physics 500 Hz): 1.00 headless, 0.99 headless + SLAM + Nav2 (load ~2).
@@ -341,13 +344,56 @@ Read freely; ask the owner before editing, disabling, restarting, or deleting an
   0.378 m scan plane is seen (pets, boxes, pots, edging, kerbs). Before the robot drives on its own
   (Nav2 / coverage) the wedge needs a fix, e.g. a parked pose that keeps the whole arm below the scan
   plane (check in CAD), the LD06 raised above the arm, or a phone-camera obstacle check in the safety
-  chain. The 2026-10-04 person tests (old robot) must be re-run, driving, with the rebuilt robot.
+  chain. Person tests re-run in sim for v21 on 2026-10-19 (see "Sim regression v21"); still to do on
+  the real robot.
 - Sim test 2026-10-18 v21, arm parked (room.world, headless, domain 42): spawn and controllers OK,
   robot level (pitch 0.13 deg); raw /scan: 20 self-hit rays (-10..+10 deg, 0.246-0.250 m = the upper
   arm), no other gap; /scan_filtered: those 20 are NaN. Teleop input (/cmd_vel_keyboard) +0.10 m/s
   for 3 s -> +0.229 m along base_link +x = toward the arm (capped at 0.08 m/s: no map, so everything
   is "unknown"); +0.5 rad/s for 3 s -> +81 deg, counterclockwise. Person / post: see SAFETY above.
   (The v2 drive test, 0.240 m straight with EKF = wheels, used the old wheel values.)
+- TAIL SWING (v21): the caster tail (x -0.52) sweeps a 0.54 m circle on every turn on the spot, and
+  turning AWAY from a wall swings it INTO that wall. SmacPlanner2D keeps only the half width (0.168 m)
+  and RPP's footprint check is the only guard against tail strikes, and it is marginal: it looks only
+  ~0.1-0.15 m of tail travel ahead (eaten by command latency on the loaded VM), and once the tail is
+  within ~1 cm of a wall the wall drops out of the local costmap (footprint clearing + the self-filter
+  box), so a retry can turn into it. Give Nav2 goal poses >= 0.6 m of room around the robot centre.
+- Sim regression v21, 2026-10-19 (domain 42, headless, committed room.world, positions and gaps from
+  Gazebo truth; test scripts were throwaway):
+  1 Teleop keys via /cmd_vel_keyboard: i (+0.10, capped 0.08 m/s without a map) 3 s -> +0.243 m toward
+    the arm in /odom, /diff_cont/odom and truth, wheel joints +1.28 / +1.28 rad/s; j (+0.5 rad/s) 3 s
+    -> +83 deg CCW, left wheel -0.66, right +0.63 rad/s. PASS.
+  2 SLAM from scratch (Nav2 goals under SLAM) -> `~/dev_ws/room_map_v21.yaml/.pgm` (the saved
+    `~/dev_ws/room_map.yaml` untouched): not mirrored (99% of its wall cells within 0.10 m of the saved
+    map; mirrored / rotated copies 7-51%), every wall a single line (the saved map has doubled south
+    and west walls), table within 0.015 m of the truth. But the N and E walls are MISSING: slam_toolbox
+    sizes the map to the scan endpoints, the noiseless sim LiDAR puts them exactly on those walls and
+    the last row / column falls off (the saved map is bigger only through stray points); the table's
+    north face was never seen (the robot cannot turn in the 0.6 m gap north of it). AMCL therefore
+    keeps using the saved room_map (its east wall is up to 0.10 m too close: AMCL vs truth 0.11-0.14 m).
+  3 AMCL + Nav2, goals (1.6,-1.2), (-1.6,0.9), (1.9,-0.3): all SUCCEEDED, 0 recoveries, 0 controller
+    aborts, min outline clearance 0.126 m (caster tail vs table, turning). PASS. (In step 2 a goal pose
+    with the tail 8 cm from the table: the turn on the spot took it to 0.013 m before RPP stopped.)
+  4 Coverage medium. Old planner: 66% / 52%, 3 / 6 controller aborts and 2 TAIL CONTACTS per run (east
+    wall, table): lane ends where no U-turn fitted stopped lane_clear (0.29 m) from a wall and RPP
+    turned on the spot there. Fixed in coverage_planner_node.py: both ends of every piece Nav2 joins
+    live (and where a perimeter loop starts) are pulled back to turn_clear 0.66 m. Now 55% in 4.3 min,
+    0 aborts, 0 contacts, min outline clearance 0.150 m, no RPP collision warnings. No Nav2 / safety /
+    clearance parameter changed. The rest of the drop: the perimeter loop runs ~0.6 m from every wall
+    (each bend is pushed to turn_clear and every pushed point leaves a kink the next pass pushes too),
+    leaving a ~0.37 m band along all walls. OPEN: needs a loop that uses the clearance for its actual
+    curve radius plus a safe way off a wall-hugging loop.
+  5 Persons (AMCL + Nav2): standing --ahead 1.5, Nav2 goal through it: stopped 0.23 m short, then went
+    around, min side gap 0.08 m. Exactly in front at 1.0 m, keyboard 0.15 m/s: stopped 0.09 m short. At
+    1.0 m standing still the RAW /scan has 0 returns on the person (the arm hides it; the filter
+    changed only the 20 arm rays, all <= 0.25 m); first returns at 0.96 m, 6 at 0.75, 11 at 0.55 (raw
+    and filtered within 1 = one-scan timing). Crossing (cross --ahead 1.0 --speed 0.2) during a Nav2
+    goal: min gap 0.19 m. 0 contacts.
+  6 Pool guard: NOT TESTABLE, no pool guard, sim pool zone or keepout filter exists yet.
+  7 Phone bridge (launch-file parameters, test port 18444, fallback_identity_anchor, fake app client):
+    base_link -> phone_optical (0.127, 0.055, 0.194), rpy (-125, 0, -90) deg = camera 35 deg down.
+    Handheld tag, no map: (0.00, 1.00, -1.10) as expected; map = base_link, anchored through the URDF
+    mount: floor point 1 m ahead of the camera -> (1.1273, 0.0546, 0.0000), anchor level.
 
 ## Software stack
 - SLAM Toolbox for mapping, AMCL for localization, Nav2 for navigation (all working indoors).
@@ -384,6 +430,8 @@ phone_optical, phone_link, arm_base, arm_turret, upper_arm, forearm, wrist, nozz
   Room-world results 2026-10-03 (headless, perimeter_laps 1): dense 88% in 328 s, medium 89% in
   307 s, wide 80% in 226 s (wide lanes are 0.50 m apart, wider than the 0.45 m swath, so gaps are
   expected); 2-4 controller aborts per run, all recovered by retry/skip at the same two spots.
+  v21 robot (2026-10-19): medium 55% in 4.3 min, 0 aborts, 0 contacts (lane ends trimmed for the
+  caster tail; perimeter loop still ~0.6 m from the walls), see "Sim regression v21".
   Blocked path: waits blocked_wait (5 s), re-plans around if there is room, else skips 1 m into
   a revisit queue retried at the end; the final report (log + latched `/coverage/report`) lists
   anything still skipped with its map location. Needs python3-scipy (apt) on the Pi.

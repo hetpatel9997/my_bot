@@ -18,9 +18,11 @@ What it does (indoor maps; outdoor use needs the pool keepout first, see CLAUDE.
      pattern preset (dense 0.25 m, medium 0.35 m, wide 0.50 m, or custom = lane_spacing).
      Boustrophedon cell decomposition (every obstacle splits the area into cells that can each
      be swept without crossing it); inside a cell the lanes are joined by smooth half-circle
-     U-turns (radius = spacing / 2) whenever the turn fits, so the robot never stops.
-  5. Cells are visited nearest-first; Nav2's planner (Smac Hybrid-A*, footprint aware) plans the
-     short transitions between edge pass and cells.
+     U-turns (radius = spacing / 2) whenever the turn fits, so the robot never stops. Where no
+     U-turn fits, the lane end and the next lane start are pulled back to turn_clear: Nav2 joins
+     them live and the robot turns on the spot there (same for where a perimeter loop starts).
+  5. Cells are visited nearest-first; Nav2's planner (SmacPlanner2D: keeps only the half width,
+     not the turning circle) plans the short transitions between edge pass and cells.
   6. Everything becomes ONE dense path (every path_resolution m, with headings) that is sent to
      Nav2's controller (FollowPath -> Regulated Pure Pursuit). The robot drives it continuously.
      If the controller gives up (a person, a moved chair...), the node waits blocked_wait s for
@@ -576,8 +578,11 @@ class CoveragePlanner(Node):
         bend = np.array([abs(wrap(yaw[(i + k) % len(yaw)] - yaw[i - k])) for i in range(len(yaw))])
         pts = self._push_out(pts, np.where(bend > math.radians(25), turn_clear, lane_clear))
         pts = resample(smooth_closed(pts, 3), step, closed=True)
-        if pose is not None:                         # start the loop nearest to the robot / last point
-            i0 = int(np.argmin(np.hypot(pts[:, 0] - pose[0], pts[:, 1] - pose[1])))
+        if pose is not None:                         # start the loop nearest to the robot / last point,
+            # where it can turn on the spot (Nav2 joins it there live, see _cell_path)
+            d = np.hypot(pts[:, 0] - pose[0], pts[:, 1] - pose[1])
+            roomy = np.array([self.dist_at(x, y) >= turn_clear for x, y in pts])
+            i0 = int(np.argmin(np.where(roomy, d, d + 1e3)))
             pts = np.vstack([pts[i0:], pts[:i0]])
         pts = np.vstack([pts, pts[:1]])              # close the loop
         yaw = headings(pts)
@@ -712,7 +717,15 @@ class CoveragePlanner(Node):
                 continue
             xy = np.array([self.to_world(v, u) for v, u in np.vstack(pcs)])
             xy = resample(xy, step)
-            if len(xy) >= 2:
+            # Nav2 joins each sub-path to the next one live, and the robot turns on the spot at
+            # both ends of that join: the caster tail swings out to the farthest footprint point
+            # (0.54 m since CAD v21). So both ends need turn_clear, not just lane_clear (a lane
+            # end where no U-turn fitted used to stop lane_clear from a wall: tail into the wall).
+            ok = np.array([self.dist_at(x, y) >= turn_clear and self.cost_ok(x, y) for x, y in xy])
+            if not ok.any():
+                continue
+            xy = xy[int(np.argmax(ok)):len(ok) - int(np.argmax(ok[::-1]))]
+            if len(xy) >= 2 and np.hypot(*np.diff(xy, axis=0).T).sum() >= self.gp('min_segment_len'):
                 out.append([(x, y, a) for (x, y), a in zip(xy, headings(xy))])
         return out
 
