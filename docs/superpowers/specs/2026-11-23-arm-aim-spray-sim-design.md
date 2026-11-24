@@ -1,6 +1,6 @@
 # Arm aims and sprays a weed, in simulation (sub-project 1) - design
 
-Date: 2026-11-23. Status: waiting for the owner's review.
+Date: 2026-11-23. Status: Approved 2026-11-23; implemented on branch arm-aim-sim (2026-11-24).
 
 ## 1. What this is
 
@@ -267,8 +267,10 @@ C. Headless Gazebo test (`test/arm_aim/run_sim_aim_test.sh`), in an empty test w
      test) -> aims, spray refused `keepout`, parks;
    - robot moving at 0.05 m/s (`/cmd_vel_keyboard`) when the spray is due -> refused;
    - e-stop during a spray -> relay off within 0.1 s, arm stops;
-   - a sim person (`sim_person.py spawn --ahead 1.0`) -> `/safety_state` not `clear` -> spray
-     refused, arm parks;
+   - a sim person (`sim_person.py spawn --ahead 1.0 --left 0.3`) -> `/safety_state` not `clear`
+     -> spray refused, arm parks. The person stands 0.3 m to the side (ruling R19): straight ahead
+     at 1.0 m the parked arm hides it completely from the LD06 (the blind wedge, CLAUDE.md "Robot
+     model"), so `/safety_state` would stay `clear`;
    - driving regression: 3 s at 0.10 m/s through `/cmd_vel_keyboard` (the safety chain; capped
      at 0.08 m/s) still moves 0.243 m +- 0.02 (2026-10-19 baseline) with `/odom` within 0.02 m of
      Gazebo's truth (`sim_odom_check.py` is not used: CLAUDE.md says it bypasses the safety chain).
