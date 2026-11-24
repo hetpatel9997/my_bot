@@ -47,8 +47,8 @@ spray_controller:
     # Never spray the robot itself: if the nozzle line hits the ground inside this box (base_link,
     # metres: [x from, x to, y from, y to] = the robot seen from above, i.e. the LiDAR self-filter
     # box plus 3 cm on every side), the spray is refused with "nozzle aimed at the robot". Why: in
-    # the parked pose the nozzle points straight down at x 0.107, onto the phone holder 5 cm
-    # under the tip. Weeds are aimed at from x 0.25 on, so real aims are never stopped by it.
+    # the parked pose the nozzle points straight down at x 0.107, onto the phone holder ~12 cm
+    # under the tip. Weeds are aimed at from x ~0.22 on, so real aims are never stopped by it.
     robot_box: [-0.56, 0.21, -0.19, 0.19]
 
     base_frame: base_link       # z = 0 is the ground

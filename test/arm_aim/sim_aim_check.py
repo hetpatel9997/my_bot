@@ -15,7 +15,8 @@ change), /joint_states (arm joints), the raw /scan converted to base_link (retur
 scan_self_filter box), /safety_state and /aim/result.
 
 Cases (each prints `PASS <n> ...` with what it measured, or `FAIL <n> ...: <why>`):
-  1. 9 targets x 0.28 / 0.34 / 0.40, y -0.10 / 0 / 0.10, z 0 (base_link). Each: reachable,
+  1. 9 targets x 0.24 / 0.29 / 0.34, y -0.10 / 0 / 0.10, z 0 (base_link; the 6 cm nozzle reaches
+     ~0.36-0.37 m, so the grid ends at 0.34). Each: reachable,
      aim_error_m <= 0.01, sprayed, the relay went on only while the arm was within 1 deg of
      joints_deg (arrived first), one on-period of 1.0 +- 0.15 s, the arm back within 1 deg of
      park; in the aim pose no raw /scan return outside the box (-0.53, 0.18, -0.16, 0.16) and
@@ -98,7 +99,7 @@ from fixtures import start_map_fixture  # noqa: E402
 
 SRDF = os.path.join(PKG, 'config', 'moveit', 'weedbot.srdf')
 N_CASES = 8
-TARGETS_9 = [(x, y, 0.0) for x in (0.28, 0.34, 0.40) for y in (-0.10, 0.0, 0.10)]
+TARGETS_9 = [(x, y, 0.0) for x in (0.24, 0.29, 0.34) for y in (-0.10, 0.0, 0.10)]
 TARGET = (0.34, 0.0, 0.0)
 SCAN_BOX = (-0.53, 0.18, -0.16, 0.16)   # base_link xmin, xmax, ymin, ymax: scan_self_filter box
 MAX_AIM_ERROR = 0.01                    # m

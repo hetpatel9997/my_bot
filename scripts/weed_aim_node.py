@@ -202,7 +202,7 @@ def reached(current: dict, goal: Sequence[float], tol_rad: float) -> bool:
 
 
 def joint_goal_constraints(goal: Sequence[float], tol: float = GOAL_TOL) -> Constraints:
-    """MoveIt goal "be at these five joint angles" (JOINT_NAMES order, +-tol rad)."""
+    """MoveIt goal "be at these four joint angles" (JOINT_NAMES order, +-tol rad)."""
     c = Constraints()
     for name, position in zip(JOINT_NAMES, goal):
         c.joint_constraints.append(JointConstraint(
@@ -324,7 +324,7 @@ class WeedAim(Node):
         self._geom = None            # ArmGeometry, from /robot_description
         self._joints = {}            # latest arm joint positions (rad)
         self._joints_time = None     # node-clock time of the latest arm joint state
-        # [(steady time, 5 positions)] for settled(): steady wall time like spray_controller,
+        # [(steady time, 4 positions)] for settled(): steady wall time like spray_controller,
         # so both nodes look at the same window (the sim clock only ticks every 0.1 s)
         self._joint_hist = []
         self._e_stop = False         # /e_stop right now

@@ -10,7 +10,8 @@
 <robot name="robot">
 
   <!-- The arm: everything from the base plate in the top cover to the nozzle tip. A chain gives
-       exactly the 5 servos: arm_base_yaw, shoulder_pitch, elbow_pitch, wrist_pitch, wrist_roll.
+       exactly the 4 servos: arm_base_yaw, shoulder_pitch, elbow_pitch, wrist_pitch (no wrist roll:
+       the nozzle is fixed on the wrist).
        The wheels are not in it: MoveIt never drives the robot. -->
   <group name="arm">
     <chain base_link="arm_base" tip_link="spray_tip"/>
@@ -25,7 +26,6 @@
     <joint name="shoulder_pitch" value="0.0"/>
     <joint name="elbow_pitch" value="1.5707963268"/>
     <joint name="wrist_pitch" value="1.5707963268"/>
-    <joint name="wrist_roll" value="0.0"/>
   </group_state>
 
   <!-- What MoveIt collision-checks: every pair of links that both HAVE a collision shape in the
@@ -119,14 +119,14 @@
   <disable_collisions link1="ebox" link2="spray_tank" reason="Adjacent"/>
   <disable_collisions link1="ebox" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="elbow_servo" link2="forearm" reason="Adjacent"/>
+  <disable_collisions link1="elbow_servo" link2="nozzle" reason="Adjacent"/>
   <disable_collisions link1="elbow_servo" link2="shoulder_servo" reason="Adjacent"/>
   <disable_collisions link1="elbow_servo" link2="upper_arm" reason="Adjacent"/>
   <disable_collisions link1="elbow_servo" link2="wrist" reason="Adjacent"/>
-  <disable_collisions link1="elbow_servo" link2="wrist_servos" reason="Adjacent"/>
+  <disable_collisions link1="forearm" link2="nozzle" reason="Adjacent"/>
   <disable_collisions link1="forearm" link2="shoulder_servo" reason="Adjacent"/>
   <disable_collisions link1="forearm" link2="upper_arm" reason="Adjacent"/>
   <disable_collisions link1="forearm" link2="wrist" reason="Adjacent"/>
-  <disable_collisions link1="forearm" link2="wrist_servos" reason="Adjacent"/>
   <disable_collisions link1="left_wheel" link2="lidar_body" reason="Adjacent"/>
   <disable_collisions link1="left_wheel" link2="lidar_puck" reason="Adjacent"/>
   <disable_collisions link1="left_wheel" link2="phone_body" reason="Adjacent"/>
@@ -150,7 +150,6 @@
   <disable_collisions link1="lidar_puck" link2="spray_tank" reason="Adjacent"/>
   <disable_collisions link1="lidar_puck" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="nozzle" link2="wrist" reason="Adjacent"/>
-  <disable_collisions link1="nozzle" link2="wrist_servos" reason="Adjacent"/>
   <disable_collisions link1="phone_body" link2="phone_bracket" reason="Adjacent"/>
   <disable_collisions link1="phone_body" link2="phone_cradle" reason="Adjacent"/>
   <disable_collisions link1="phone_body" link2="phone_shelf" reason="Adjacent"/>
@@ -174,7 +173,6 @@
   <disable_collisions link1="shoulder_servo" link2="upper_arm" reason="Adjacent"/>
   <disable_collisions link1="spray_tank" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="turret_servo" link2="upper_arm" reason="Adjacent"/>
-  <disable_collisions link1="wrist" link2="wrist_servos" reason="Adjacent"/>
   <!-- END generated -->
 
 </robot>

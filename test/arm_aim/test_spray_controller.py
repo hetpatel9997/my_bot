@@ -40,7 +40,7 @@ from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 from aim_solver import JOINT_NAMES
 import spray_controller_node as scn
 
-PARK = (0.0, 0.0, math.pi / 2, math.pi / 2, 0.0)   # JOINT_NAMES order
+PARK = (0.0, 0.0, math.pi / 2, math.pi / 2)   # JOINT_NAMES order
 LATCHED = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
@@ -425,7 +425,7 @@ def test_nozzle_up(ctl, world, relay):
 
 # --- final review I2 / ruling R24: never spray the robot itself (the phone under the parked arm)
 
-@pytest.mark.parametrize('tip_xyz', [(0.107, 0.0, 0.276),     # the PARK pose: hit at x 0.107
+@pytest.mark.parametrize('tip_xyz', [(0.107, 0.0, 0.347),     # the PARK pose: hit at x 0.107
                                      (-0.30, 0.10, 0.20)],    # pointing down over the body
                          ids=['parked', 'over_the_body'])
 def test_nozzle_aimed_at_robot(ctl, world, relay, tip_xyz):

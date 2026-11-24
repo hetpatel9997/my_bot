@@ -461,8 +461,8 @@ class SprayController(Node):
         the ground within ground_reach of arm_base: pointing up or out across the yard -> refuse.
         The hit must also lie OUTSIDE robot_box (the robot seen from above + 3 cm, final review
         I2 / ruling R24): in the PARK pose the nozzle points straight down at x 0.107, onto the
-        phone holder 5 cm under the tip, and every other check passes there. A weed is never
-        under the robot (the aim patch starts at x 0.25, the box ends at x 0.21), so this only
+        phone holder ~12 cm under the tip, and every other check passes there. A weed is never
+        under the robot (the aim patch starts at x ~0.22, the box ends at x 0.21), so this only
         stops sprays at the robot itself (parked arm, or a pose pointing back over the body).
         Every moving TF link used must be fresh (joint_states_timeout): a frozen arm TF (e.g.
         robot_state_publisher died) would otherwise pass with an old pose.

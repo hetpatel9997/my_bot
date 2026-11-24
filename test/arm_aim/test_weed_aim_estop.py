@@ -59,7 +59,7 @@ import weed_aim_node as wan
 PKG = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SAFETY_YAML = os.path.join(PKG, 'config', 'safety.yaml')
 SRDF = os.path.join(PKG, 'config', 'moveit', 'weedbot.srdf')
-PARK = (0.0, 0.0, math.pi / 2, math.pi / 2, 0.0)   # JOINT_NAMES order
+PARK = (0.0, 0.0, math.pi / 2, math.pi / 2)   # JOINT_NAMES order
 LATCHED = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
 VOLATILE = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
@@ -407,7 +407,7 @@ def test_park_not_gated_on_safety_state(world, aim):
     """/aim/park works while /safety_state says `stop`: an arm stopped mid-move can be seen by
     the LiDAR, and its own `stop` must not make parking impossible."""
     with world.lock:
-        world.joints = [0.3, 0.2, 1.2, 1.0, 0.0]            # somewhere off park
+        world.joints = [0.3, 0.2, 1.2, 1.0]                 # somewhere off park
     world.set_safety('stop')
     time.sleep(0.5)
     assert world.call_park() == (True, 'parked')

@@ -1,18 +1,18 @@
 <?xml version="1.0"?>
 <!--
   Sprayer arm on the top cover at the FRONT of the robot (over the drive wheels, CAD v21):
-  4 x MG996R + a wrist roll.
+  4 x MG996R. No wrist roll servo (the owner's build has none, 2026-11-24): the nozzle sits on the
+  wrist-pitch servo, straight along the last link.
     arm_base_yaw   : servo 1, hangs under the base plate in front of the axis and turns the arm (and
                      its round base housing) through a gear, about the vertical axis at arm_x
                      (yaw range: MEASURE)
     shoulder_pitch : servo 2
     elbow_pitch    : servo 3
-    wrist_pitch    : servo 4
-    wrist_roll     : servo 5, arm_roll_d along the last link, turns the nozzle about the link
+    wrist_pitch    : servo 4, carries the nozzle (fixed); its tip is arm_l4 from the wrist axis
                      (link spray_tip = where the spray leaves)
   Zero position = arm pointing straight up. Positive pitch tilts forward (toward the phone).
   Each joint: -90..+90 deg (the servo's 180 deg travel centred). Link lengths (axis to axis) are in
-  weedbot_properties.xacro (arm_l1..l4, arm_roll_d, CAD v21). Masses: MEASURE.
+  weedbot_properties.xacro (arm_l1..l3 CAD v21, arm_l4 the owner's ~6 cm). Masses: MEASURE.
   In RViz, move it with joint_state_publisher_gui; on the robot the servo driver publishes the same
   joint names on /joint_states.
 -->
@@ -32,12 +32,11 @@
     <xacro:property name="q_shoulder" value="0"/>
     <xacro:property name="q_elbow" value="0"/>
     <xacro:property name="q_wrist" value="0"/>
-    <xacro:property name="q_roll" value="0"/>
     <gazebo reference="arm_turret"><gravity>false</gravity></gazebo>
     <gazebo reference="upper_arm"><gravity>false</gravity></gazebo>
     <gazebo reference="forearm"><gravity>false</gravity></gazebo>
+    <!-- wrist: Gazebo merges the nozzle (fixed joint) into it, so this covers the nozzle too -->
     <gazebo reference="wrist"><gravity>false</gravity></gazebo>
-    <gazebo reference="nozzle"><gravity>false</gravity></gazebo>
   </xacro:if>
   <xacro:unless value="$(arg sim_mode)">
     <xacro:property name="arm_joint_type" value="revolute"/>
@@ -45,7 +44,6 @@
     <xacro:property name="q_shoulder" value="0"/>
     <xacro:property name="q_elbow" value="0"/>
     <xacro:property name="q_wrist" value="0"/>
-    <xacro:property name="q_roll" value="0"/>
   </xacro:unless>
 
   <xacro:property name="servo_x" value="0.0407"/>
@@ -161,42 +159,31 @@
     <axis xyz="0 1 0"/>
     <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
   </joint>
+  <!-- the wrist: the wrist-pitch servo body at the axis (visual + collision), turning with the nozzle -->
   <link name="wrist">
-    <visual><origin xyz="0 0 ${arm_roll_d/2}"/><geometry><box size="${link_w} ${link_w} ${arm_roll_d}"/></geometry><material name="petg_blue"/></visual>
-    <collision><origin xyz="0 0 ${arm_roll_d/2}"/><geometry><box size="${servo_x} ${servo_y} ${arm_roll_d+servo_z}"/></geometry></collision>
-    <inertial><origin xyz="0 0 ${arm_roll_d/2}"/><mass value="0.1"/><xacro:box_inertia m="0.1" x="${servo_x}" y="${servo_y}" z="${arm_roll_d}"/></inertial>
-  </link>
-
-  <!-- servo 4 body at the wrist pitch axis and servo 5 (wrist roll) body, shaft along the link at the
-       roll joint (size approximate); each box is also a collision shape (servo 5 is wider than the
-       wrist's own collision box) -->
-  <joint name="wrist_servos_joint" type="fixed"><parent link="wrist"/><child link="wrist_servos"/><origin xyz="0 0 0"/></joint>
-  <link name="wrist_servos">
     <xacro:servo_visual xyz="0 0 0" rpy="0 0 0"/>
-    <visual><origin xyz="0 0 ${arm_roll_d-servo_x/2}"/><geometry><box size="${servo_y} ${servo_z} ${servo_x}"/></geometry><material name="servo"/></visual>
     <xacro:servo_collision xyz="0 0 0" rpy="0 0 0"/>
-    <collision><origin xyz="0 0 ${arm_roll_d-servo_x/2}"/><geometry><box size="${servo_y} ${servo_z} ${servo_x}"/></geometry></collision>
+    <inertial><origin xyz="0 0 0"/><mass value="0.07"/><xacro:box_inertia m="0.07" x="${servo_x}" y="${servo_y}" z="${servo_z}"/></inertial>
   </link>
 
-  <!-- servo 5: wrist roll, turns the nozzle about the link axis -->
-  <joint name="wrist_roll" type="${arm_joint_type}">
+  <!-- the nozzle, fixed on the wrist and straight along the last link: from the servo body's end
+       (servo_z/2 out from the wrist axis) to the tip, arm_l4 from the wrist axis -->
+  <joint name="nozzle_joint" type="fixed">
     <parent link="wrist"/>
     <child link="nozzle"/>
-    <origin xyz="0 0 ${arm_roll_d}" rpy="0 0 ${q_roll}"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="${-servo_limit}" upper="${servo_limit}" effort="${servo_effort}" velocity="${servo_velocity}"/>
+    <origin xyz="0 0 ${servo_z/2}"/>
   </joint>
   <link name="nozzle">
-    <visual><origin xyz="0 0 ${(arm_l4-arm_roll_d)/2}"/><geometry><cylinder radius="0.006" length="${arm_l4-arm_roll_d}"/></geometry><material name="alu"/></visual>
-    <collision><origin xyz="0 0 ${(arm_l4-arm_roll_d)/2}"/><geometry><cylinder radius="0.006" length="${arm_l4-arm_roll_d}"/></geometry></collision>
-    <inertial><origin xyz="0 0 ${(arm_l4-arm_roll_d)/2}"/><mass value="0.02"/><xacro:cyl_inertia m="0.02" r="0.006" h="${arm_l4-arm_roll_d}"/></inertial>
+    <visual><origin xyz="0 0 ${(arm_l4-servo_z/2)/2}"/><geometry><cylinder radius="0.006" length="${arm_l4-servo_z/2}"/></geometry><material name="alu"/></visual>
+    <collision><origin xyz="0 0 ${(arm_l4-servo_z/2)/2}"/><geometry><cylinder radius="0.006" length="${arm_l4-servo_z/2}"/></geometry></collision>
+    <inertial><origin xyz="0 0 ${(arm_l4-servo_z/2)/2}"/><mass value="0.02"/><xacro:cyl_inertia m="0.02" r="0.006" h="${arm_l4-servo_z/2}"/></inertial>
   </link>
 
   <!-- where the spray comes out, z pointing along the nozzle -->
   <joint name="spray_tip_joint" type="fixed">
     <parent link="nozzle"/>
     <child link="spray_tip"/>
-    <origin xyz="0 0 ${arm_l4-arm_roll_d}"/>
+    <origin xyz="0 0 ${arm_l4-servo_z/2}"/>
   </joint>
   <link name="spray_tip">
     <visual><geometry><sphere radius="0.006"/></geometry><material name="petg_orange"/></visual>

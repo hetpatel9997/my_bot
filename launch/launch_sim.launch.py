@@ -51,7 +51,7 @@ def generate_launch_description():
         arguments=["joint_broad"]
     )
 
-    # Arm (sim only): arm_controller (config/arm_controllers_sim.yaml) moves the five arm joints;
+    # Arm (sim only): arm_controller (config/arm_controllers_sim.yaml) moves the four arm joints;
     # the robot has no arm driver yet. Started once the joint_broad spawner is done, so the
     # controller manager is surely up and the arm joint states are already being published.
     arm_spawner = Node(

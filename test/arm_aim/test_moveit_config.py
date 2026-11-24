@@ -31,7 +31,7 @@ XACRO_NS = '{http://www.ros.org/wiki/xacro}'
 
 
 def test_srdf_group():
-    """Group `arm` is the chain arm_base -> spray_tip (the 5 arm joints, nothing else)."""
+    """Group `arm` is the chain arm_base -> spray_tip (the 4 arm joints, nothing else)."""
     root = ET.parse(SRDF).getroot()
     groups = [g for g in root.findall('group') if g.get('name') == 'arm']
     assert len(groups) == 1, 'exactly one group named arm'
@@ -46,7 +46,7 @@ def _xacro_park():
     root = ET.parse(os.path.join(PKG, 'description', 'weedbot_properties.xacro')).getroot()
     props = {p.get('name'): p.get('value') for p in root.iter(XACRO_NS + 'property')}
     out = []
-    for key in ('yaw', 'shoulder', 'elbow', 'wrist', 'roll'):
+    for key in ('yaw', 'shoulder', 'elbow', 'wrist'):
         text = props['arm_park_' + key].strip()
         if text.startswith('${') and text.endswith('}'):
             text = text[2:-1]
@@ -57,13 +57,14 @@ def _xacro_park():
 def test_park_matches_xacro_and_stub():
     """MoveIt's `park` = the URDF's parked pose = what the real-robot stub publishes."""
     park = load_park(SRDF)
-    assert len(park) == 5
+    assert len(park) == len(JOINT_NAMES) == 4
     assert list(park) == pytest.approx(_xacro_park(), abs=1e-6)
 
     with open(os.path.join(PKG, 'config', 'arm_joint_state_stub.yaml')) as f:
         stub = yaml.safe_load(f)['arm_joint_state_stub']['ros__parameters']
-    assert tuple(stub['joints'][:5]) == JOINT_NAMES
-    assert list(park) == pytest.approx(stub['positions'][:5], abs=1e-6)
+    assert tuple(stub['joints'][:4]) == JOINT_NAMES
+    assert 'wrist_roll' not in stub['joints']
+    assert list(park) == pytest.approx(stub['positions'][:4], abs=1e-6)
 
 
 def test_joint_limits_all_joints():

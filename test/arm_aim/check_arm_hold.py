@@ -2,12 +2,12 @@
 """
 check_arm_hold.py  -  SIMULATION ONLY: the arm holds its parked pose in Gazebo and moves when told.
 
-Why this test exists: in Gazebo the five arm joints are position-controlled by ros2_control
+Why this test exists: in Gazebo the four arm joints are position-controlled by ros2_control
 (description/ros2_control.xacro sim block + arm_controller, config/arm_controllers_sim.yaml).
 Before that they were welded in the parked pose. The later arm tasks rely on two things, checked
 here in this order:
   1. HOLD  - for 30 s (sim time) the spray tip stays where the parked arm puts it: base_link
-             x 0.107, z 0.276 (CAD v21), every sample within 5 mm in x and z. If the arm sagged
+             x 0.107, z 0.347 (6 cm nozzle), every sample within 5 mm in x and z. If the arm sagged
              (gravity) or jittered, the tip would move.
   2. MOVE  - a FollowJointTrajectory goal on /arm_controller/follow_joint_trajectory turns the
              yaw joint to 0.5 rad (other joints parked) in 3 s; /joint_states must show the yaw
@@ -37,10 +37,10 @@ from tf2_ros import Buffer, TransformListener
 from trajectory_msgs.msg import JointTrajectoryPoint
 
 # Joint order used everywhere in the arm code.
-JOINTS = ['arm_base_yaw', 'shoulder_pitch', 'elbow_pitch', 'wrist_pitch', 'wrist_roll']
+JOINTS = ['arm_base_yaw', 'shoulder_pitch', 'elbow_pitch', 'wrist_pitch']
 # Parked pose (weedbot_properties.xacro arm_park_*): elbow and wrist +90 deg = nozzle pointing down.
-PARK = [0.0, 0.0, math.pi / 2, math.pi / 2, 0.0]
-TIP_PARKED_X, TIP_PARKED_Z = 0.107, 0.276   # spray tip in base_link with the arm parked (CAD v21)
+PARK = [0.0, 0.0, math.pi / 2, math.pi / 2]
+TIP_PARKED_X, TIP_PARKED_Z = 0.107, 0.347   # spray tip in base_link, arm parked (wrist axis 0.4073 - 6 cm nozzle)
 TIP_TOL = 0.005        # m, hold check
 HOLD_S = 30.0          # s sim time, hold check
 YAW_GOAL = 0.5         # rad, move check

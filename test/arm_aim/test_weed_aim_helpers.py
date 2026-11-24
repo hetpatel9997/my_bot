@@ -6,7 +6,7 @@ Run (isolated in ROS domain 42, cleans up after itself):
 What is checked:
   - reached(): "has the arm arrived?" is true only if EVERY arm joint is within the tolerance,
     and false when a joint is missing from /joint_states (never assume a joint we cannot see).
-  - joint_goal_constraints(): the MoveIt joint goal names the five arm joints in the usual order,
+  - joint_goal_constraints(): the MoveIt joint goal names the four arm joints in the usual order,
     with the goal positions and a small tolerance.
   - clamp_to_limits(): every goal sent to MoveIt is pulled inside the URDF joint limits (the SRDF
     park value is 5e-12 rad above the elbow / wrist limit; MoveIt would refuse it as out of bounds).
@@ -24,7 +24,7 @@ from aim_solver import JOINT_NAMES
 from weed_aim_node import (add_joint_sample, clamp_to_limits, joint_goal_constraints, reached,
                            settled)
 
-PARK = (0.0, 0.0, math.pi / 2, math.pi / 2, 0.0)   # JOINT_NAMES order
+PARK = (0.0, 0.0, math.pi / 2, math.pi / 2)   # JOINT_NAMES order
 ONE_DEG = math.radians(1.0)
 
 
@@ -42,7 +42,7 @@ def test_reached_within_tolerance():
 
 
 def test_reached_missing_joint():
-    current = {n: g for n, g in zip(JOINT_NAMES, PARK) if n != 'wrist_roll'}
+    current = {n: g for n, g in zip(JOINT_NAMES, PARK) if n != 'wrist_pitch'}
     assert reached(current, PARK, ONE_DEG) is False
     # a NaN position (broken driver) is not "arrived" either
     nan = dict(zip(JOINT_NAMES, PARK))
@@ -51,11 +51,11 @@ def test_reached_missing_joint():
 
 
 def test_joint_goal_constraints():
-    goal = (0.1, -0.2, 0.3, -0.4, 0.5)
+    goal = (0.1, -0.2, 0.3, -0.4)
     c = joint_goal_constraints(goal)
     assert isinstance(c, Constraints)
     assert [j.joint_name for j in c.joint_constraints] == list(JOINT_NAMES)
-    assert len(c.joint_constraints) == 5
+    assert len(c.joint_constraints) == 4
     for j, g in zip(c.joint_constraints, goal):
         assert j.position == g
         assert j.tolerance_above == 0.001

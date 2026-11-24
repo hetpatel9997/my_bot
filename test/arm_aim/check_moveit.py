@@ -12,7 +12,7 @@ this order:
                     or one joint apart) are already excluded in the SRDF, so a contact reported
                     here is between parts that should NOT touch: a robot model problem. Do not
                     hide it by adding the pair to the SRDF; fix the model.
-  2. G VALID      - test pose G = (0.3, 0.3, 1.2, 1.2, 0.0) rad (yaw, shoulder, elbow, wrist, roll):
+  2. G VALID      - test pose G = (0.3, 0.3, 1.2, 1.2) rad (yaw, shoulder, elbow, wrist pitch):
                     arm turned a little left and leaning forward, nozzle down; also valid, no
                     contacts.
   3. MOVE TO G    - MoveGroup goal (joint goal, 0.001 rad tolerance, plan + execute): MoveIt answers
@@ -54,7 +54,7 @@ from aim_solver import JOINT_NAMES  # noqa: E402
 from arm_config import load_park  # noqa: E402
 
 SRDF = os.path.join(PKG, 'config', 'moveit', 'weedbot.srdf')
-GOAL_G = (0.3, 0.3, 1.2, 1.2, 0.0)      # rad, JOINT_NAMES order
+GOAL_G = (0.3, 0.3, 1.2, 1.2)           # rad, JOINT_NAMES order (4 joints, no wrist roll)
 GOAL_TOL = 0.001                        # rad, MoveIt joint goal tolerance
 REACH_TOL = math.radians(1.0)           # rad, /joint_states must get this close
 REACH_S = 15.0                          # s sim time from sending the goal
@@ -134,6 +134,8 @@ class MoveItCheck(Node):
 
     # ---- validity -----------------------------------------------------------------------
     def check_valid(self, target, label):
+        assert len(target) == len(JOINT_NAMES), \
+            f'{label}: {len(target)} values for {len(JOINT_NAMES)} joints'
         req = GetStateValidity.Request()
         req.group_name = 'arm'
         req.robot_state.joint_state.name = list(JOINT_NAMES)
@@ -154,6 +156,8 @@ class MoveItCheck(Node):
 
     # ---- move ---------------------------------------------------------------------------
     def move_to(self, target, label):
+        assert len(target) == len(JOINT_NAMES), \
+            f'{label}: {len(target)} values for {len(JOINT_NAMES)} joints'
         goal = MoveGroup.Goal()
         r = goal.request
         r.group_name = 'arm'

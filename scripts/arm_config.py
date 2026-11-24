@@ -19,8 +19,8 @@ from aim_solver import JOINT_NAMES
 def load_park(srdf_path: str) -> tuple:
     """Parked arm pose from the SRDF's group_state `park` (group `arm`).
 
-    Returns 5 angles in rad, in JOINT_NAMES order. Raises ValueError if the state is missing
-    or does not name all five joints (a half-defined park pose must never be used).
+    Returns 4 angles in rad, in JOINT_NAMES order. Raises ValueError if the state is missing
+    or does not name all four joints (a half-defined park pose must never be used).
     """
     root = ET.parse(srdf_path).getroot()
     for state in root.findall('group_state'):

@@ -332,7 +332,7 @@
   <!-- =============================== phone mount =============================== -->
   <!-- shelf on the front of the body, wedge bracket on it (drawn as its bounding box), cradle slab
        tilted like the phone (perpendicular to the camera axis). Each part has a collision shape equal
-       to its visual: the holder and the phone sit right under the parked nozzle (5 cm below its tip),
+       to its visual: the holder and the phone sit right under the parked nozzle (~12 cm below its tip),
        and without them MoveIt would plan the nozzle straight into the phone. They lie below both LD06
        scan planes (tank 0.378, temporary front mount 0.268), so the LiDAR does not see them. -->
   <joint name="phone_shelf_joint" type="fixed">

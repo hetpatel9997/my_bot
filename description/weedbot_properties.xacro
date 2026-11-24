@@ -84,7 +84,8 @@
   <xacro:property name="sump_z0"   value="0.1574"/>
   <xacro:property name="tank_mass" value="3.6"/>
 
-  <!-- robotic arm at the front: 4 x MG996R pitch/yaw (40.7 x 19.7 x 42.9 mm, 180 deg) + wrist roll -->
+  <!-- robotic arm at the front: 4 x MG996R, yaw + 3 pitch (40.7 x 19.7 x 42.9 mm, 180 deg). No wrist
+       roll servo: the owner's build has none (2026-11-24); the nozzle sits on the wrist-pitch servo. -->
   <xacro:property name="arm_x"          value="0.0066"/>     <!-- base yaw axis, just in front of the drive axle -->
   <xacro:property name="arm_base_z"     value="0.2305"/>     <!-- underside of the bearing plate set into the cover (= top of the top frame) -->
   <xacro:property name="arm_plate_t"    value="0.0061"/>     <!-- plate top = yaw joint = top of the cover 0.2366 -->
@@ -95,8 +96,9 @@
   <xacro:property name="arm_l1"         value="0.0707"/>     <!-- arm base underside (yaw joint) to shoulder axis -->
   <xacro:property name="arm_l2"         value="0.100"/>      <!-- shoulder axis to elbow axis -->
   <xacro:property name="arm_l3"         value="0.100"/>      <!-- elbow axis to wrist pitch axis -->
-  <xacro:property name="arm_l4"         value="0.131"/>      <!-- wrist pitch axis to the spray nozzle tip -->
-  <xacro:property name="arm_roll_d"     value="0.0737"/>     <!-- wrist pitch axis to the wrist roll joint, along the link -->
+  <xacro:property name="arm_l4"         value="0.060"/>      <!-- wrist pitch axis to the spray nozzle tip, nozzle straight along
+                                                                 the last link: about 6 cm on the owner's arm (2026-11-24, no roll
+                                                                 servo; CAD v21 had 0.131 through a roll servo). MEASURE exactly -->
   <xacro:property name="servo_limit"    value="${pi/2}"/>   <!-- MG996R: 0..180 deg -> -90..+90 around the centre
                                                                  (MEASURE for arm_base_yaw: its gear changes the range) -->
   <xacro:property name="servo_effort"   value="1.0"/>       <!-- ~11 kg.cm = 1.08 N.m -->
@@ -108,13 +110,13 @@
                                                                  face 0.246 m from the LD06: 2 x 0.246 x tan 10 deg.
                                                                  Makes the sim scan match; visuals keep the plain bar. -->
   <!-- parked pose (CAD v21): upper arm straight up, forearm pointing forward (horizontal), last link
-       pointing down: wrist axis x 0.107 at 0.4073, nozzle tip at x 0.107, 0.276. The sim fixes the arm
-       in this pose; config/arm_joint_state_stub.yaml publishes the same angles for the real robot. -->
+       pointing down: wrist axis x 0.107 at 0.4073, nozzle tip at x 0.107, 0.3473 (= 0.4073 - arm_l4).
+       Gazebo starts the arm in this pose; config/arm_joint_state_stub.yaml publishes the same angles
+       for the real robot. -->
   <xacro:property name="arm_park_yaw"      value="0.0"/>
   <xacro:property name="arm_park_shoulder" value="0.0"/>
   <xacro:property name="arm_park_elbow"    value="${pi/2}"/>
   <xacro:property name="arm_park_wrist"    value="${pi/2}"/>
-  <xacro:property name="arm_park_roll"     value="0.0"/>
 
   <!-- phone mount on a shelf on the front of the body: shelf, wedge bracket (drawn as its bounding
        box), cradle slab tilted like the phone. The camera frames use phone_xyz / phone_tilt. -->

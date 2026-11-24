@@ -2,6 +2,13 @@
 
 Date: 2026-11-23. Status: Approved 2026-11-23; implemented on branch arm-aim-sim (2026-11-24).
 
+**Amendment 2026-11-24 (owner, branch arm-4-servos): the arm has FOUR servos, no wrist roll.**
+Wherever this document says 5 joints / `wrist_roll`, read 4 joints (arm_base_yaw, shoulder_pitch,
+elbow_pitch, wrist_pitch). The nozzle is fixed straight on the wrist-pitch servo with its tip about
+0.060 m from that axis (was 0.131 m through a roll servo), so the arm reaches about 10 cm less: the
+9-target test grid moved from x 0.28 / 0.34 / 0.40 to 0.24 / 0.29 / 0.34 m. The aiming rules (tilt
+0-50 deg, standoff 0.08-0.25 m) and everything else are unchanged.
+
 ## 1. What this is
 
 The WeedBot arm work is split into four sub-projects, built in this order:

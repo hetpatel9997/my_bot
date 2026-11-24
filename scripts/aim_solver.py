@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Aim solver for the WeedBot spray arm (pure maths, no ROS).
 
-The arm has 5 joints: a yaw (turns the whole arm about the vertical), three
-pitch joints (shoulder, elbow, wrist) that all bend in ONE vertical plane, and
-a roll that spins the nozzle about its own axis (it does not change where the
-nozzle points, so it stays 0).
+The arm has 4 joints: a yaw (turns the whole arm about the vertical) and three
+pitch joints (shoulder, elbow, wrist) that all bend in ONE vertical plane. The
+nozzle is fixed on the wrist, straight along the last link (no wrist roll on
+the owner's build, 2026-11-24).
 
 The question answered here: "which joint angles make the nozzle point at a
 weed, from a short distance away, without the arm blocking the LiDAR?"
@@ -42,7 +42,7 @@ from typing import Optional
 
 import numpy as np
 
-JOINT_NAMES = ('arm_base_yaw', 'shoulder_pitch', 'elbow_pitch', 'wrist_pitch', 'wrist_roll')
+JOINT_NAMES = ('arm_base_yaw', 'shoulder_pitch', 'elbow_pitch', 'wrist_pitch')
 
 
 def _wrap(a: float) -> float:
@@ -57,8 +57,8 @@ class ArmGeometry:
     l_shoulder: float          # yaw joint -> shoulder axis   (0.0707)
     l_upper: float             # shoulder -> elbow            (0.100)
     l_fore: float              # elbow -> wrist pitch         (0.100)
-    l_tip: float               # wrist pitch -> spray tip     (0.131 = wrist_roll z + spray_tip_joint z)
-    lower: tuple               # 5 joint limits, rad, JOINT_NAMES order
+    l_tip: float               # wrist pitch -> spray tip     (0.060 = nozzle_joint z + spray_tip_joint z)
+    lower: tuple               # 4 joint limits, rad, JOINT_NAMES order
     upper: tuple
 
     @staticmethod
@@ -83,7 +83,7 @@ class ArmGeometry:
         l_shoulder = origin('shoulder_pitch')[2]
         l_upper = origin('elbow_pitch')[2]
         l_fore = origin('wrist_pitch')[2]
-        l_tip = origin('wrist_roll')[2] + origin('spray_tip_joint')[2]
+        l_tip = origin('nozzle_joint')[2] + origin('spray_tip_joint')[2]
 
         lower, upper = [], []
         for name in JOINT_NAMES:
@@ -114,7 +114,7 @@ class AimLimits:
 
 @dataclass(frozen=True)
 class AimSolution:
-    joints: tuple        # 5 rad, JOINT_NAMES order, roll = 0.0
+    joints: tuple        # 4 rad, JOINT_NAMES order
     tilt: float          # rad from straight down
     standoff: float      # m, tip -> target
     tip: tuple           # (x, y, z) in arm_base
@@ -221,7 +221,7 @@ def solve(target, geom: ArmGeometry, lim: AimLimits):
             for qe in (math.acos(c), -math.acos(c)):
                 qs = math.atan2(wr[0], wr[1]) - math.atan2(lf * math.sin(qe), lu + lf * math.cos(qe))
                 qw = th - qs - qe
-                q = (yaw, _wrap(qs), _wrap(qe), _wrap(qw), 0.0)
+                q = (yaw, _wrap(qs), _wrap(qe), _wrap(qw))
                 if any(v < lo - 1e-12 or v > hi + 1e-12
                        for v, lo, hi in zip(q, geom.lower, geom.upper)):
                     continue
