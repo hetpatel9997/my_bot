@@ -65,7 +65,8 @@ class ArmGeometry:
     def from_urdf(urdf_xml: str) -> 'ArmGeometry':
         """Read the arm lengths and joint limits out of the robot URDF text."""
         root = ET.fromstring(urdf_xml)
-        joints = {j.get('name'): j for j in root.iter('joint')}
+        # URDF joints are direct children of <robot>; ignore <joint> tags nested in <ros2_control>.
+        joints = {j.get('name'): j for j in root.findall('joint')}
 
         def origin(name):
             if name not in joints:

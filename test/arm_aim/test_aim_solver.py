@@ -76,3 +76,16 @@ def test_keep_clear_grid(geom, keep):
                 near = np.abs(pts[:, 2] - keep.scan_z) < keep.scan_band
                 for px, py, _ in pts[near]:
                     assert xmin <= px <= xmax and ymin <= py <= ymax
+
+
+def test_from_urdf_ignores_ros2_control_joints(urdf_xml, geom):
+    """<joint> tags inside <ros2_control> must not override the real URDF joints."""
+    from aim_solver import ArmGeometry, JOINT_NAMES
+    block = '<ros2_control name="arm_sim" type="system"><hardware><plugin>x</plugin></hardware>'
+    for n in JOINT_NAMES:
+        block += (f'<joint name="{n}"><command_interface name="position"/>'
+                  f'<state_interface name="position"/></joint>')
+    block += '</ros2_control>'
+    injected = urdf_xml.replace('</robot>', block + '</robot>')
+    assert injected != urdf_xml
+    assert ArmGeometry.from_urdf(injected) == geom
