@@ -1,0 +1,21 @@
+# How MoveIt 2 sends a planned arm move to the robot (loaded by launch/arm_aim.launch.py).
+# MoveIt hands the whole timed trajectory to ONE controller over its action
+# /arm_controller/follow_joint_trajectory. In Gazebo that is arm_controller
+# (config/arm_controllers_sim.yaml, a joint_trajectory_controller); on the real robot the servo
+# driver will offer the same action name later, so this file stays the same.
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - arm_controller
+  arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    # same order everywhere in the arm code
+    joints:
+      - arm_base_yaw
+      - shoulder_pitch
+      - elbow_pitch
+      - wrist_pitch
+      - wrist_roll

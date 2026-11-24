@@ -1,0 +1,33 @@
+# MoveIt 2 speed and acceleration limits for the arm (override the URDF; loaded by
+# launch/arm_aim.launch.py). Slow and gentle on purpose: an MG996R can turn ~5 rad/s with no
+# load, but a sprayer arm next to plants has no reason to hurry, and smooth moves are kinder to
+# the printed parts and the gears. Planned moves use half of these by default (scaling 0.5).
+default_velocity_scaling_factor: 0.5
+default_acceleration_scaling_factor: 0.5
+
+joint_limits:
+  arm_base_yaw:
+    has_velocity_limits: true
+    max_velocity: 1.0          # rad/s
+    has_acceleration_limits: true
+    max_acceleration: 2.0      # rad/s^2
+  shoulder_pitch:
+    has_velocity_limits: true
+    max_velocity: 1.0
+    has_acceleration_limits: true
+    max_acceleration: 2.0
+  elbow_pitch:
+    has_velocity_limits: true
+    max_velocity: 1.0
+    has_acceleration_limits: true
+    max_acceleration: 2.0
+  wrist_pitch:
+    has_velocity_limits: true
+    max_velocity: 1.0
+    has_acceleration_limits: true
+    max_acceleration: 2.0
+  wrist_roll:
+    has_velocity_limits: true
+    max_velocity: 1.0
+    has_acceleration_limits: true
+    max_acceleration: 2.0
