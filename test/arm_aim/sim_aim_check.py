@@ -47,7 +47,10 @@ Cases (each prints `PASS <n> ...` with what it measured, or `FAIL <n> ...: <why>
   7. Target (0.34, 0, 0) in frame `nowhere` -> reason `no transform nowhere -> base_link`,
      `refused`, every joint within 0.5 deg of park, relay never on.
   8. Target A (0.34, 0, 0), 0.5 s later target B (0.28, 0.10, 0): exactly one result (A's, `ok`)
-     and no second one in the 5 s after it; then B again -> `ok`.
+     and, for 15 s after it, no second result, every joint within 0.5 deg of park and the relay
+     off (so B was dropped, not queued: a queued B would move the arm at once and report within
+     one cycle, longest measured 11.5 s); then B again -> `ok`, and the arm left park only after
+     B again was sent. (The brief's quiet window was 5 s; a whole cycle is longer than that.)
 Before each case: /safety_state `clear` and the arm parked (if a failed case left it elsewhere
 or in ERROR, /aim/park is called and the line says so). Parameters this test changes
 (zones_file, spray_seconds), the e-stop, the drive command and the person are always undone.
@@ -107,7 +110,7 @@ STILL_TOL = math.radians(0.5)           # refused target: the arm never left par
 CLEAR_WAIT_S = 30.0
 READY_WAIT_S = 120.0
 RESULT_WAIT_S = 60.0                    # target -> its /aim/result
-QUIET_S = 5.0                           # case 8: no second result in this time
+QUIET_S = 15.0                          # case 8: > one whole cycle (longest measured 11.5 s)
 PERSON_WAIT_S = 20.0
 KEEPOUT_HALF = 0.05                     # m, half the side of the case 3 square
 DRIVE_SPEED, DRIVE_HZ = 0.05, 10.0      # case 4
@@ -641,22 +644,36 @@ def case_busy(node):
     node.spin_for(0.5)
     node.send_target(b)
     t_res, res = node.wait_result(t_a)
-    node.spin_for(QUIET_S)
-    got = node.results_between(t_a, time.monotonic())
-    if len(got) != 1:
-        raise Fail(f'{len(got)} results for A then B (expected only A\'s): {got}')
     node.check_result(res, a)
     if res.get('state') != 'ok':
         raise Fail(f'A: state {res.get("state")!r} reason {res.get("reason")!r}')
+    # B must have been DROPPED, not queued: a queued B would start moving the arm right after A's
+    # result and report within one cycle, i.e. inside this window.
+    node.spin_for(QUIET_S)
+    t_quiet = time.monotonic()
+    got = node.results_between(t_a, t_quiet)
+    if len(got) != 1:
+        raise Fail(f'{len(got)} results for A then B (expected only A\'s): {got}')
+    dev, n = node.max_dev_deg(t_res, t_quiet, node.park_pose)
+    if dev > deg(STILL_TOL):
+        raise Fail(f'the arm left park after A\'s result ({dev:.2f} deg): B was queued?')
+    node.expect_no_relay(t_res, t_quiet)
     t_b = node.send_target(b)
     t_res_b, res_b = node.wait_result(t_b)
     node.check_result(res_b, b)
     if res_b.get('state') != 'ok':
         raise Fail(f'B again: state {res_b.get("state")!r} reason {res_b.get("reason")!r}')
+    # this B's own cycle moved the arm: it left park only after B again was sent
+    t_left = next((t for t, q in node.joints
+                   if t > t_res and node.off_park_deg(q) > deg(STILL_TOL)), None)
+    if t_left is None or t_left <= t_b:
+        raise Fail(f'B again: the arm left park at {t_left} s, not after B was sent ({t_b} s)')
     node.expect_parked_after(t_res_b)
     return (f'A then B 0.5 s later -> 1 result (A, ok, aim error '
-            f'{res["aim_error_m"] * 1000:.1f} mm), none in the next {QUIET_S:.0f} s; B again -> '
-            f'ok (aim error {res_b["aim_error_m"] * 1000:.1f} mm, {res_b["spray_reason"]!r})')
+            f'{res["aim_error_m"] * 1000:.1f} mm); in the next {QUIET_S:.0f} s no result, joints '
+            f'max {dev:.2f} deg off park ({n} samples), relay off; B again -> ok (aim error '
+            f'{res_b["aim_error_m"] * 1000:.1f} mm, {res_b["spray_reason"]!r}), arm left park '
+            f'{t_left - t_b:.2f} s after B was sent')
 
 
 CASES = [
