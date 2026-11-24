@@ -48,6 +48,11 @@ install(PROGRAMS
   scripts/sim_person.py
   scripts/phone_bridge_node.py
   scripts/arm_joint_state_stub.py
+  scripts/keepout_zones_node.py
+  scripts/aim_solver.py
+  scripts/arm_config.py
+  scripts/spray_controller_node.py
+  scripts/weed_aim_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

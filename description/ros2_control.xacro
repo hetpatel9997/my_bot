@@ -63,6 +63,46 @@
                 <state_interface name="velocity"/>
                 <state_interface name="position"/>
             </joint>
+            <!-- Arm (sim only). Position command = Gazebo puts each joint straight at the commanded
+                 angle, like a hobby servo does. initial_value = the parked angles (arm_park_* in
+                 weedbot_properties.xacro), so the arm spawns parked and is held there even before
+                 arm_controller (config/arm_controllers_sim.yaml) starts. The real robot has no arm
+                 driver yet (RealRobot block above). -->
+            <joint name="arm_base_yaw">
+                <command_interface name="position"/>
+                <state_interface name="position">
+                    <param name="initial_value">${arm_park_yaw}</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+            <joint name="shoulder_pitch">
+                <command_interface name="position"/>
+                <state_interface name="position">
+                    <param name="initial_value">${arm_park_shoulder}</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+            <joint name="elbow_pitch">
+                <command_interface name="position"/>
+                <state_interface name="position">
+                    <param name="initial_value">${arm_park_elbow}</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+            <joint name="wrist_pitch">
+                <command_interface name="position"/>
+                <state_interface name="position">
+                    <param name="initial_value">${arm_park_wrist}</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
+            <joint name="wrist_roll">
+                <command_interface name="position"/>
+                <state_interface name="position">
+                    <param name="initial_value">${arm_park_roll}</param>
+                </state_interface>
+                <state_interface name="velocity"/>
+            </joint>
         </ros2_control> 
     </xacro:if>
 
@@ -70,6 +110,8 @@
         <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
             <parameters>$(find my_bot)/config/my_controllers.yaml</parameters>
             <parameters>$(find my_bot)/config/gaz_ros2_ctl_use_sim.yaml</parameters>
+            <!-- sim-only arm_controller; my_controllers.yaml is shared with the real robot -->
+            <parameters>$(find my_bot)/config/arm_controllers_sim.yaml</parameters>
         </plugin>
     </gazebo>
 
