@@ -1,0 +1,53 @@
+# Arm aim + spray (sub-project 1, simulation). One section per node.
+#   ros2 run my_bot spray_controller_node.py --ros-args --params-file config/arm_aim.yaml
+# Only spray_seconds and zones_file can be changed while the node runs (ros2 param set); every
+# other spray_controller parameter is fixed at start (read-only: a change is refused loudly).
+
+spray_controller:
+  ros__parameters:
+    # sim = no hardware, the relay state is only published on /spray/relay (the sim has no pump).
+    # gpio = real relay on a Pi pin through lgpio (sub-project 4; not installed on the VM).
+    backend: sim
+    # Start armed? Honoured ONLY with backend sim; with gpio the node always starts disarmed and
+    # the owner arms it with: ros2 service call /spray/arm std_srvs/srv/SetBool "{data: true}"
+    start_armed: false
+    # Spray time per trigger (s). Read at every trigger. Hard cap 3.0 s in the code: a bigger
+    # value still sprays only 3.0 s.
+    spray_seconds: 1.0
+    # Keepout zones (same format as config/backyard_zones.yaml, the pool guard's file). '' = no
+    # zones: the keepout check is skipped and the log says so. Zones set but no map transform ->
+    # every spray is refused. Re-read whenever this parameter changes.
+    zones_file: ''
+
+    odom_topic: /odom
+    joint_states_topic: /joint_states
+    e_stop_topic: /e_stop
+    safety_state_topic: /safety_state
+
+    # CLAUDE.md hard rule: spray only while /safety_state is "clear" and at most this old (s).
+    safety_max_age: 0.5
+    # Robot still = speed < still_linear (m/s) and turn rate < still_angular (rad/s) for
+    # still_time (s); no /odom for odom_timeout (s) = refuse (we cannot tell if it moves).
+    still_linear: 0.01
+    still_angular: 0.02
+    still_time: 0.5
+    odom_timeout: 1.0
+    # Arm still = every arm joint moved less than arm_still_speed (rad/s) over arm_still_time (s),
+    # from joint positions; no arm joint states for joint_states_timeout (s) = refuse.
+    arm_still_speed: 0.02
+    arm_still_time: 0.3
+    joint_states_timeout: 0.5
+    # The nozzle line must hit the ground within ground_reach (m) of arm_base: pointing down at
+    # a weed next to the robot, never up or out across the yard.
+    ground_reach: 0.8
+
+    base_frame: base_link       # z = 0 is the ground
+    map_frame: map              # frame of the keepout zones
+    arm_base_frame: arm_base
+    nozzle_frame: spray_tip     # its +z axis = the spray direction
+
+    # gpio backend only (sub-project 4): gpiochip, relay pin (BCM number, -1 = not set: the
+    # node refuses to start), and true if the relay module switches on at a LOW pin.
+    gpio_chip: 0
+    gpio_pin: -1
+    active_low: false
