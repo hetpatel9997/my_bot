@@ -138,9 +138,10 @@ package would not reach the Pi with the usual `git pull`. MoveIt's launch helper
   controller rate (10 Hz); in between, gravity would make the arm sag. Real servos hold stiffly,
   so a gravity-free, position-held arm behaves like the real one.
 - `launch_sim.launch.py`: spawns `arm_controller` after `joint_broad`; in sim
-  `arm_joint_state_stub` keeps publishing only the two caster joints (they are `continuous`
-  joints that robot_state_publisher needs; the joint state broadcaster now publishes the arm
-  joints). The real robot keeps the full stub until the servo driver exists (sub-project 4).
+  `arm_joint_state_stub` is no longer started (the joint state broadcaster now publishes the arm
+  joints, and the caster joints exist only in the real-robot URDF: `weedbot_body.xacro`'s
+  `xacro:unless sim_mode` block, so publishing them in sim only produces "joint not found"
+  errors). The real robot keeps the full stub until the servo driver exists (sub-project 4).
 
 ### 4.3 MoveIt config (`config/moveit/`)
 - `weedbot.srdf`: planning group `arm` = chain `arm_base` -> `spray_tip` (5 joints); named state
