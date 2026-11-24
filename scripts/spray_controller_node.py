@@ -14,7 +14,8 @@ Topics
 
 Before switching on, SIX checks must pass, in this order (the first failure is the answer):
   1. armed                 (not armed)
-  2. arm in place          (no joint states | arm moving | nozzle not pointing at the ground)
+  2. arm in place          (no joint states | arm moving | nozzle not pointing at the ground |
+                            nozzle aimed at the robot)
   3. robot still           (no odom | robot moving)
   4. not in a keepout zone (inside keepout zone <name> | keepout check impossible: ...)
   5. no e-stop             (e-stop)
@@ -92,6 +93,8 @@ PARAMS = {
     'arm_still_time': (0.3, '... over this long (s), from joint positions'),
     'joint_states_timeout': (0.5, 'no arm joint states for this long (s) = refuse'),
     'ground_reach': (0.8, 'nozzle line must hit the ground this close to arm_base (m)'),
+    'robot_box': ([-0.56, 0.21, -0.19, 0.19], 'refuse if the nozzle line hits the ground inside '
+                  'this base_link box [xmin, xmax, ymin, ymax] (m): the robot itself'),
     'base_frame': ('base_link', 'robot frame, z = 0 is the ground'),
     'map_frame': ('map', 'frame of the keepout zones'),
     'arm_base_frame': ('arm_base', 'arm base frame'),
@@ -101,6 +104,26 @@ PARAMS = {
     'active_low': (False, 'gpio backend: true if the relay module switches on at a LOW pin'),
 }
 RUNTIME_PARAMS = ('spray_seconds', 'zones_file')
+
+
+def parse_box(value) -> tuple:
+    """robot_box [xmin, xmax, ymin, ymax] -> 4 floats, or ValueError if it is not a usable box.
+    A wrong box must stop the node, not be ignored: with no box it would spray the robot."""
+    try:
+        box = tuple(float(v) for v in value)
+    except (TypeError, ValueError):
+        raise ValueError(f'not 4 numbers: {value!r}') from None
+    if len(box) != 4 or not all(math.isfinite(v) for v in box):
+        raise ValueError(f'not 4 numbers: {list(box)}')
+    if not (box[0] < box[1] and box[2] < box[3]):
+        raise ValueError(f'needs xmin < xmax and ymin < ymax: {list(box)}')
+    return box
+
+
+def inside_box(box, x, y) -> bool:
+    """True if (x, y) is in box [xmin, xmax, ymin, ymax], edges included. Written as "not
+    outside" so that a NaN point counts as inside (= refuse), never as a pass."""
+    return not (x < box[0] or x > box[1] or y < box[2] or y > box[3])
 
 
 def initial_armed(backend: str, start_armed: bool) -> bool:
@@ -227,6 +250,11 @@ class SprayController(Node):
             self.declare_parameter(name, default, ParameterDescriptor(
                 description=doc, read_only=name not in RUNTIME_PARAMS))
         p = {name: self.get_parameter(name).value for name in PARAMS}
+        try:
+            self._robot_box = parse_box(p['robot_box'])
+        except ValueError as e:
+            Node.destroy_node(self)
+            raise RuntimeError(f'robot_box {e}') from None
         backend = p['backend']
         if relay is None:
             relay = self._make_relay(backend, p)   # GpioRelay claims its pin at the OFF level
@@ -431,6 +459,11 @@ class SprayController(Node):
 
         The nozzle must point down (spray_tip +z has z < -0.1 in base_link) and the line must hit
         the ground within ground_reach of arm_base: pointing up or out across the yard -> refuse.
+        The hit must also lie OUTSIDE robot_box (the robot seen from above + 3 cm, final review
+        I2 / ruling R24): in the PARK pose the nozzle points straight down at x 0.107, onto the
+        phone holder 5 cm under the tip, and every other check passes there. A weed is never
+        under the robot (the aim patch starts at x 0.25, the box ends at x 0.21), so this only
+        stops sprays at the robot itself (parked arm, or a pose pointing back over the body).
         Every moving TF link used must be fresh (joint_states_timeout): a frozen arm TF (e.g.
         robot_state_publisher died) would otherwise pass with an old pose.
         """
@@ -453,6 +486,8 @@ class SprayController(Node):
             return None, f'nozzle check impossible: no transform {self._base} <- {self._arm_base}'
         if not (math.hypot(hit[0] - a[0], hit[1] - a[1]) <= self._ground_reach):
             return None, 'nozzle not pointing at the ground'
+        if inside_box(self._robot_box, hit[0], hit[1]):
+            return None, 'nozzle aimed at the robot'
         return hit, ''
 
     def _robot_reason(self, now):

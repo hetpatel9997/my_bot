@@ -139,8 +139,11 @@ class World(Node):
         self.estop_pub.publish(Bool(data=False))
         self.send_tf()
 
-    def send_tf(self, nozzle_down=True, with_map=None):
-        """(Re)publish all static transforms in one latched message (dynamic ones: 20 Hz)."""
+    def send_tf(self, nozzle_down=True, with_map=None, tip_xyz=(0.30, 0.0, 0.20)):
+        """(Re)publish all static transforms in one latched message (dynamic ones: 20 Hz).
+
+        tip_xyz = where the nozzle tip is in base_link; pointing down it sprays the ground
+        straight under it, so the default sprays (0.30, 0), inside the aim patch."""
         with_map = self.with_map if with_map is None else with_map
 
         def tf(parent, child, xyz, quat=(0.0, 0.0, 0.0, 1.0)):
@@ -154,7 +157,7 @@ class World(Node):
         # spray_tip +z = the spray direction; 180 deg about x turns it to point straight down
         tip_quat = (1.0, 0.0, 0.0, 0.0) if nozzle_down else (0.0, 0.0, 0.0, 1.0)
         tfs = [tf('base_link', 'arm_base', (0.0066, 0.0, 0.2336)),
-               tf('base_link', 'spray_tip', (0.30, 0.0, 0.20), tip_quat)]
+               tf('base_link', 'spray_tip', tuple(float(v) for v in tip_xyz), tip_quat)]
         if with_map:
             tfs.append(tf('map', 'base_link', (0.0, 0.0, 0.0)))
         with self._lock:
@@ -412,6 +415,46 @@ def test_nozzle_up(ctl, world, relay):
     assert wait_until(lambda: ctl.check() == 'nozzle not pointing at the ground', 5.0)
     assert trigger(world) == (False, 'nozzle not pointing at the ground')
     assert not relay.ever_on()
+
+
+# --- final review I2 / ruling R24: never spray the robot itself (the phone under the parked arm)
+
+@pytest.mark.parametrize('tip_xyz', [(0.107, 0.0, 0.276),     # the PARK pose: hit at x 0.107
+                                     (-0.30, 0.10, 0.20)],    # pointing down over the body
+                         ids=['parked', 'over_the_body'])
+def test_nozzle_aimed_at_robot(ctl, world, relay, tip_xyz):
+    world.send_tf(tip_xyz=tip_xyz)
+    assert wait_until(lambda: ctl.check() == 'nozzle aimed at the robot', 5.0), ctl.check()
+    assert trigger(world) == (False, 'nozzle aimed at the robot')
+    assert not relay.ever_on()
+
+
+@pytest.mark.parametrize('tip_xyz', [(0.30, 0.0, 0.20),       # the middle of the aim patch
+                                     (0.25, 0.10, 0.20)],     # its nearest corner
+                         ids=['x0.30', 'x0.25_y0.10'])
+def test_aim_patch_outside_robot_box_sprays(ctl, world, relay, tip_xyz):
+    world.send_tf(tip_xyz=tip_xyz)
+    time.sleep(0.3)                      # the new TF is in
+    assert ctl.check() == ''
+    assert trigger(world) == (True, 'sprayed 1.00 s')
+    assert len(relay.on_periods()) == 1
+
+
+def test_robot_box_read_only(ctl):
+    assert list(ctl.get_parameter('robot_box').value) == [-0.56, 0.21, -0.19, 0.19]
+    assert not ctl.set_parameters([Parameter('robot_box', value=[0.0, 0.0, 0.0, 0.0])])[0] \
+        .successful
+
+
+@pytest.mark.parametrize('box', [[0.21, -0.56, -0.19, 0.19], [-0.56, 0.21, -0.19],
+                                 [-0.56, float('nan'), -0.19, 0.19]],
+                         ids=['xmin_above_xmax', 'three_numbers', 'nan'])
+def test_bad_robot_box_refuses_to_start(ros, box):
+    relay = FakeRelay()
+    with pytest.raises(RuntimeError, match='robot_box'):
+        scn.SprayController(relay=relay, parameter_overrides=[
+            Parameter('start_armed', value=True), Parameter('robot_box', value=box)])
+    assert [on for _, on in relay.calls] == [False]
 
 
 def test_keepout(ctl, world, relay, zones_file):
