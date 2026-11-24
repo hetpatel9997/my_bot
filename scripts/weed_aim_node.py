@@ -28,6 +28,17 @@ Give it a point (a weed on the ground) and it runs one CYCLE:
 One cycle at a time: a target that arrives while a cycle runs (or while the node is in ERROR) is
 logged and dropped - no result, nothing queued (a detector may publish many).
 
+A cycle STARTS only while the latest /safety_state is fresh (at most safety_max_age 0.5 s old, by
+a steady clock like spray_controller) and not `stop` (rule R23); else `refused` with reason
+`safety_state stop` or `safety_state missing or old`, and the arm does not move. Checked when the
+target arrives and again after waiting for MoveIt (that wait can take up to 10 s). Why: an
+e-stop pressed BEFORE this node started (or restarted) is invisible on /e_stop when its publisher
+is already gone (`ros2 topic pub --once` exits at once), but safety_state_node heard it and keeps
+saying `stop` until the e-stop is released. Without this, a click would move the arm while
+twist_mux keeps the robot locked. `slow` is allowed: the spray controller refuses the spray then
+anyway. /aim/park does NOT look at /safety_state: an arm stopped in the middle of a move can be
+in the LiDAR's view, and its own `stop` must not make parking impossible.
+
 Outputs
   /aim/result   std_msgs/String, JSON, one per cycle:
                   target {frame, base_link_xyz}, reachable, reason, joints_deg, tilt_deg,
@@ -44,7 +55,7 @@ Outputs
   /aim/markers  visualization_msgs/MarkerArray (base_link): target sphere, nozzle centre line,
                 spray cone only while /spray/relay is true
   /aim/park     std_srvs/Trigger: park the arm now (refused with "busy" during a cycle and with
-                "e-stop" while /e_stop is true)
+                "e-stop" while /e_stop is true; /safety_state is not looked at, see below)
 
 E-stop (/e_stop true) at ANY point of a cycle (also before the arm moved, rule R17): the node
 stops the arm at once, never moves it again by itself (no retry, no park), reports `e-stop` with
@@ -104,6 +115,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos_event import SubscriptionEventCallbacks
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from rcl_interfaces.msg import ParameterDescriptor
@@ -171,6 +183,8 @@ PARAMS = {
     'arrive_timeout': (15.0, '... within this long after MoveIt finished (s)', False),
     'planning_time': (5.0, 'MoveIt planning time limit (s)', False),
     'ground_top': (0.02, 'top of the ground box in base_link (m): the arm stays above it', True),
+    'safety_max_age': (0.5, 'a cycle starts only if the latest /safety_state is at most this old '
+                            '(s, steady clock) and not stop', True),
 }
 
 
@@ -295,6 +309,7 @@ class WeedAim(Node):
         self._base, self._arm_base = p['base_frame'], p['arm_base_frame']
         self._laser, self._nozzle = p['laser_frame'], p['nozzle_frame']
         self._ground_top = p['ground_top']
+        self._safety_max_age = p['safety_max_age']
         share = None
         if not p['safety_yaml'] or not p['srdf_path']:
             from ament_index_python.packages import get_package_share_directory
@@ -314,6 +329,8 @@ class WeedAim(Node):
         self._joint_hist = []
         self._e_stop = False         # /e_stop right now
         self._e_stop_seen = False    # /e_stop went true since this cycle / park started
+        self._safety = None          # latest /safety_state (clear | slow | stop)
+        self._safety_time = None     # its arrival, time.monotonic() (None = never received)
         self._relay = False          # /spray/relay: only for the spray cone marker
         self._busy = False           # a cycle or an /aim/park is running
         self._error = ''             # '' = ready; else why targets are dropped until /aim/park
@@ -330,15 +347,35 @@ class WeedAim(Node):
 
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        # /e_stop VOLATILE (and reliable): a transient-local reader would not hear the owner's
-        # `ros2 topic pub` (volatile writer); twist_mux and spray_controller read it the same way.
         volatile = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
                               durability=DurabilityPolicy.VOLATILE)
+        # No QoS event handlers (rclpy's default one only logs "incompatible QoS"): the same
+        # rclpy 3.3.19 busy-loop workaround as spray_controller_node._subscribe. This node's
+        # single-threaded executor is not hit by that loop, but these two subscriptions guard
+        # safety rules, so they are made the proven way. For the TRANSIENT_LOCAL /e_stop one it
+        # also stops a warning for every volatile /e_stop publisher (those the volatile one hears).
+        no_events = SubscriptionEventCallbacks(use_default_callbacks=False)
         self.create_subscription(String, '/robot_description', self._on_robot_description,
                                  latched)
         self.create_subscription(JointState, '/joint_states', self._on_joint_states,
                                  qos_profile_sensor_data)
+        # /e_stop: TWO subscriptions, same callback (rule R23).
+        #  - VOLATILE (reliable) hears every reliable publisher, latched or not, from the moment
+        #    this node runs; twist_mux and spray_controller read /e_stop the same way.
+        #  - TRANSIENT_LOCAL also gets the LAST message of a latched publisher that is still
+        #    running but published before this node started. `ros2 topic pub` publishes latched
+        #    by default in Humble (ros2topic/verb/pub.py); without --once it keeps running. A
+        #    transient-local reader cannot hear volatile publishers (a DDS QoS rule), hence both.
+        #  A latched publisher's message arrives on both: _on_e_stop acts only on a change, so the
+        #  second copy does nothing. An e-stop sent with --once is gone when that command exits:
+        #  /safety_state below covers it (safety_state_node keeps saying `stop` until released).
         self.create_subscription(Bool, '/e_stop', self._on_e_stop, volatile)
+        self.create_subscription(Bool, '/e_stop', self._on_e_stop, latched,
+                                 event_callbacks=no_events)
+        # /safety_state: reliable + volatile like spray_controller (no stale history; it comes
+        # at 10 Hz). Its age is measured on arrival with a steady clock (time.monotonic()).
+        self.create_subscription(String, '/safety_state', self._on_safety_state, volatile,
+                                 event_callbacks=no_events)
         self.create_subscription(Bool, '/spray/relay', self._on_relay, latched)
         self.create_subscription(PointStamped, '/aim_target', self._on_target, volatile)
         self.create_subscription(PointStamped, '/clicked_point', self._on_target, volatile)
@@ -399,6 +436,17 @@ class WeedAim(Node):
             return self._tf.lookup_transform(target, source, Time())
         except TransformException:
             raise _Refused(f'no transform {source} -> {target}') from None
+
+    def _safety_refusal(self) -> str:
+        """'' if a cycle may start: the latest /safety_state is fresh and not `stop` (R23).
+        Else the refusal reason, worded like spray_controller's."""
+        age = None if self._safety_time is None else time.monotonic() - self._safety_time
+        # `not (a <= b)` so that a missing or odd age counts as old
+        if age is None or not (age <= self._safety_max_age):
+            return 'safety_state missing or old'
+        if self._safety == 'stop':
+            return 'safety_state stop'
+        return ''
 
     def _fresh_joints(self) -> bool:
         return (self._joints_time is not None
@@ -474,6 +522,9 @@ class WeedAim(Node):
         elif not on and was_on:
             self.get_logger().info('/e_stop released' + (
                 ' (ERROR stays until /aim/park succeeds)' if self._error else ''))
+
+    def _on_safety_state(self, msg):
+        self._safety, self._safety_time = msg.data, time.monotonic()
 
     def _on_relay(self, msg):
         changed = bool(msg.data) != self._relay
@@ -591,6 +642,10 @@ class WeedAim(Node):
             raise _EStop()                      # R17: an e-stop in any phase is ERROR
         if self.get_parameter('use_sim_time').value and self._now() == 0.0:
             raise _Refused('no /clock (use_sim_time is true but no simulation clock arrives)')
+        # R23: never start on `stop` or without a fresh /safety_state (module docstring)
+        refusal = self._safety_refusal()
+        if refusal:
+            raise _Refused(refusal)
 
         # 2. WHERE: target in base_link, then in arm_base
         target_bl = _tf_point(self._lookup(self._base, msg.header.frame_id),
@@ -603,6 +658,9 @@ class WeedAim(Node):
         await self._wait_ready()
         if self._stopped():
             raise _EStop()
+        refusal = self._safety_refusal()    # again: waiting for MoveIt can take up to 10 s
+        if refusal:
+            raise _Refused(refusal)
         t_solve = time.monotonic()      # "solve" = solver + MoveIt validity checks
         geom = self._geom
         target_arm = _tf_point(self._lookup(self._arm_base, self._base), target_bl)
@@ -864,6 +922,8 @@ class WeedAim(Node):
     # ------------------------------------------------------------------ /aim/park
 
     async def _on_park(self, request, response):
+        # No /safety_state check here (R23 c): an arm stopped mid-move can block the LiDAR
+        # itself, and that `stop` must not make parking impossible. The e-stop still refuses.
         response.success = False
         if self._busy:
             response.message = 'busy'

@@ -107,3 +107,10 @@ weed_aim:
     # Ground box added to MoveIt's world at start (4 x 4 x 0.1 m, in base_link): its top is this
     # high (m), so MoveIt keeps every arm part at least that far above the ground.
     ground_top: 0.02
+    # A target starts a cycle only if the latest /safety_state is at most this old (s) and not
+    # "stop"; else it is refused ("safety_state stop" / "safety_state missing or old") and the
+    # arm does not move. Why: an e-stop sent with `ros2 topic pub --once` BEFORE weed_aim started
+    # is invisible to weed_aim on /e_stop, but /safety_state keeps saying "stop" until you
+    # release it. "slow" is allowed (the spray controller then refuses the spray by itself).
+    # /aim/park does not look at /safety_state. Fixed at start.
+    safety_max_age: 0.5
