@@ -41,11 +41,15 @@ Outputs
   /aim/park     std_srvs/Trigger: park the arm now (refused with "busy" during a cycle and with
                 "e-stop" while /e_stop is true)
 
-E-stop (/e_stop true): once the arm has started moving in a cycle, the node stops it at once,
-never moves it again by itself (no park), reports `e-stop` with state `error`, and stays in ERROR
-until the e-stop is released and /aim/park succeeds. During a spray the spray controller switches
-the relay off by itself; its answer ("aborted: e-stop") becomes `spray_reason`. An e-stop BEFORE
-the arm moved just refuses the target.
+E-stop (/e_stop true) at ANY point of a cycle (also before the arm moved, rule R17): the node
+stops the arm at once, never moves it again by itself (no retry, no park), reports `e-stop` with
+state `error`, and stays in ERROR until the e-stop is released and /aim/park succeeds. During a
+spray the spray controller switches the relay off by itself; its answer ("aborted: e-stop")
+becomes `spray_reason`.
+A SHORT e-stop counts too: the change to true is REMEMBERED (`_e_stop_seen`) until the next
+cycle or /aim/park starts. Without that, a true -> false pulse while the node only waits (the 2 s
+pause before a CONTROL_FAILED retry, a goal being accepted, the spray) would be over when the
+cycle looks next, and the arm would move again although the e-stop was pressed.
 How the arm is stopped: the node publishes "stop" on /trajectory_execution_event (MoveIt's own stop
 signal, the same one RViz's Stop button sends: move_group cancels the arm_controller goal and the
 arm holds where it is) AND cancels the MoveGroup goal. The cancel alone does NOT stop the arm in
@@ -229,7 +233,7 @@ class _Refused(Exception):
 
 
 class _EStop(Exception):
-    """/e_stop turned true after the arm started moving."""
+    """/e_stop was (or still is) true during a cycle or a park."""
 
 
 class _ParkFailed(Exception):
@@ -262,7 +266,8 @@ class WeedAim(Node):
         self._geom = None            # ArmGeometry, from /robot_description
         self._joints = {}            # latest arm joint positions (rad)
         self._joints_time = None     # node-clock time of the latest arm joint state
-        self._e_stop = False
+        self._e_stop = False         # /e_stop right now
+        self._e_stop_seen = False    # /e_stop went true since this cycle / park started
         self._relay = False          # /spray/relay: only for the spray cone marker
         self._busy = False           # a cycle or an /aim/park is running
         self._error = ''             # '' = ready; else why targets are dropped until /aim/park
@@ -321,9 +326,14 @@ class WeedAim(Node):
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
+    def _stopped(self) -> bool:
+        """E-stop on now, or pressed (even briefly) since this cycle / park started."""
+        return self._e_stop or self._e_stop_seen
+
     async def _sleep(self, seconds):
+        """Wait `seconds` without blocking the node; ends early on an e-stop."""
         end = self._now() + seconds
-        while self._now() < end:
+        while self._now() < end and not self._stopped():
             await _OneRound()
 
     async def _wait(self, future, timeout, stop_on_e_stop=True) -> bool:
@@ -331,7 +341,7 @@ class WeedAim(Node):
         at once on an e-stop if stop_on_e_stop."""
         end = self._now() + timeout
         while not future.done():
-            if (stop_on_e_stop and self._e_stop) or self._now() >= end:
+            if (stop_on_e_stop and self._stopped()) or self._now() >= end:
                 return False
             await _OneRound()
         return True
@@ -404,6 +414,7 @@ class WeedAim(Node):
         was_on, self._e_stop = self._e_stop, on
         if on and not was_on:
             self.get_logger().warn('/e_stop ON')
+            self._e_stop_seen = True    # remembered even if it is released a moment later
             # Stop the arm right here, not only when the cycle looks next. Only on the change
             # to true: a publisher repeating "true" must not flood MoveIt with "stop" events
             # (no move can start while the e-stop stays on anyway).
@@ -429,6 +440,9 @@ class WeedAim(Node):
                                    f'the e-stop if needed, then call /aim/park')
             return
         self._busy = True
+        # Forget e-stops from before this cycle. Here, not in the task: an e-stop between now
+        # and the task's first step must count for this cycle.
+        self._e_stop_seen = False
         self.get_logger().info(f'target {where}: cycle starts')
         self.executor.create_task(self._run_cycle, msg)
 
@@ -521,8 +535,8 @@ class WeedAim(Node):
 
     async def _cycle(self, msg, p, res):
         """The recipe (module docstring). Raises _Refused / _EStop / _ParkFailed."""
-        if self._e_stop:
-            raise _Refused('e-stop')
+        if self._stopped():
+            raise _EStop()                      # R17: an e-stop in any phase is ERROR
         if self.get_parameter('use_sim_time').value and self._now() == 0.0:
             raise _Refused('no /clock (use_sim_time is true but no simulation clock arrives)')
 
@@ -535,6 +549,8 @@ class WeedAim(Node):
         self._marker_target = target_bl
         self._publish_markers()
         await self._wait_ready()
+        if self._stopped():
+            raise _EStop()
         t_solve = time.monotonic()      # "solve" = solver + MoveIt validity checks
         geom = self._geom
         target_arm = _tf_point(self._lookup(self._arm_base, self._base), target_bl)
@@ -564,10 +580,10 @@ class WeedAim(Node):
         res['joints_deg'] = [_num(math.degrees(v), 2) for v in goal]
         res['tilt_deg'] = _num(math.degrees(chosen.tilt), 1)
         res['standoff_m'] = _num(chosen.standoff, 3)
-        if self._e_stop:
-            raise _Refused('e-stop')            # still parked: nothing to undo
+        if self._stopped():
+            raise _EStop()
 
-        # 5 + 6. MOVE and ARRIVED? (from here on an e-stop means ERROR)
+        # 5 + 6. MOVE and ARRIVED?
         t_move = time.monotonic()
         try:
             reason = await self._move_to(goal, p, 'aim')
@@ -591,7 +607,7 @@ class WeedAim(Node):
             res['durations']['spray'] = _num(time.monotonic() - t_spray, 3)
         else:
             res['spray_reason'] = 'not sprayed: parameter spray is false'
-        if self._e_stop:
+        if self._stopped():         # also an e-stop already released while the spray ran
             raise _EStop()
 
         # 9. PARK
@@ -656,12 +672,14 @@ class WeedAim(Node):
         # that would stop this new move too, so wait until the old one is over.
         end = self._now() + ANSWER_S
         while self._halting is not None:
+            if self._stopped():
+                raise _EStop()
             if self._now() >= end:
                 return 'MoveIt not ready'
             await _OneRound()
         for attempt in (1, 2):
-            if self._e_stop:
-                raise _EStop()                      # never start a move during an e-stop
+            if self._stopped():
+                raise _EStop()                      # never start a move after an e-stop
             if not self._move_group.server_is_ready():
                 return 'MoveIt not ready'
             send = self._move_group.send_goal_async(self._move_goal(joints, p))
@@ -676,12 +694,12 @@ class WeedAim(Node):
             result = handle.get_result_async()
             self._goal_handle, self._goal_result = handle, result
             try:
-                if self._e_stop:                    # came in while the goal was being accepted
-                    self._halt()
+                if self._stopped():                 # came in while the goal was being accepted
+                    self._halt()                    # (nothing was running for its own "stop")
                     raise _EStop()
                 self.get_logger().info(f'{label}: moving')
                 done = await self._wait(result, p['planning_time'] + p['arrive_timeout'])
-                if self._e_stop:
+                if self._stopped():
                     raise _EStop()                  # the /e_stop callback already stopped it
                 if not done:
                     self.get_logger().error(f'{label}: no MoveIt result in time')
@@ -698,7 +716,7 @@ class WeedAim(Node):
                     f'{label}: MoveIt CONTROL_FAILED (right after start move_group may not have '
                     f'found arm_controller yet); trying once more in {RETRY_PAUSE_S:.0f} s')
                 await self._sleep(RETRY_PAUSE_S)
-                if self._e_stop:
+                if self._stopped():
                     raise _EStop()
                 continue
             self.get_logger().error(f'{label}: MoveIt error {error_name(code)}')
@@ -723,7 +741,7 @@ class WeedAim(Node):
         end = self._now() + p['arrive_timeout']
         since = None
         while True:
-            if self._e_stop:
+            if self._stopped():
                 raise _EStop()
             now = self._now()
             if self._fresh_joints() and reached(self._joints, joints, tol):
@@ -798,6 +816,7 @@ class WeedAim(Node):
             response.message = 'e-stop'
             return response
         self._busy = True
+        self._e_stop_seen = False   # e-stops before this call are over; new ones count
         reason = ''
         try:
             await self._wait_ready()
