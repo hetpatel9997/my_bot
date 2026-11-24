@@ -34,7 +34,8 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool, Trigger
-from tf2_ros import StaticTransformBroadcaster
+from rclpy.clock import ClockType
+from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 
 from aim_solver import JOINT_NAMES
 import spray_controller_node as scn
@@ -55,15 +56,28 @@ def wait_until(cond, timeout, period=0.02):
 
 
 class FakeRelay:
-    """Stands in for the pump relay: records every switch as (time.monotonic(), on)."""
+    """Stands in for the pump relay: records every switch as (time.monotonic(), on).
+
+    Like a GPIO relay it can fail: `fail_on = True` makes every ON write raise, `fail_off = n`
+    makes the next n OFF writes raise (a passing lgpio error). Failed writes switch nothing,
+    so they are only counted (`failed`), not recorded in `calls`.
+    """
 
     def __init__(self):
         self._lock = threading.Lock()
         self._calls = []
         self.closed = False
+        self.fail_on = False
+        self.fail_off = 0
+        self.failed = 0
 
     def set(self, on):
         with self._lock:
+            if (on and self.fail_on) or (not on and self.fail_off > 0):
+                self.failed += 1
+                if not on:
+                    self.fail_off -= 1
+                raise OSError('fake GPIO write error')
             self._calls.append((time.monotonic(), bool(on)))
 
     def close(self):
@@ -94,10 +108,14 @@ class FakeRelay:
 class World(Node):
     """Fake robot around the spray controller (see the module docstring)."""
 
-    def __init__(self):
+    def __init__(self, dynamic=(), with_map=False):
+        """dynamic: child frames sent on /tf at 20 Hz (while dyn_tf_on) instead of /tf_static."""
         super().__init__('spray_test_world')
         group = ReentrantCallbackGroup()
         self._lock = threading.Lock()
+        self.dynamic, self.with_map = tuple(dynamic), with_map
+        self.dyn_tf_on = True
+        self.dyn_tfs = []
         self.vx = 0.0                    # robot speed in /odom (m/s)
         self.odom_on = self.joints_on = self.safety_on = True
         self.safety = 'clear'
@@ -107,6 +125,7 @@ class World(Node):
         self.safety_pub = self.create_publisher(String, '/safety_state', LATCHED)
         self.estop_pub = self.create_publisher(Bool, '/e_stop', LATCHED)
         self.tf_static = StaticTransformBroadcaster(self)
+        self.tf_dynamic = TransformBroadcaster(self)
         self.trigger_cli = self.create_client(Trigger, '/spray/trigger', callback_group=group)
         self.arm_cli = self.create_client(SetBool, '/spray/arm', callback_group=group)
         self.relay_msgs = []             # every /spray/relay message, in order
@@ -120,8 +139,10 @@ class World(Node):
         self.estop_pub.publish(Bool(data=False))
         self.send_tf()
 
-    def send_tf(self, nozzle_down=True, with_map=False):
-        """(Re)publish all static transforms in one latched message."""
+    def send_tf(self, nozzle_down=True, with_map=None):
+        """(Re)publish all static transforms in one latched message (dynamic ones: 20 Hz)."""
+        with_map = self.with_map if with_map is None else with_map
+
         def tf(parent, child, xyz, quat=(0.0, 0.0, 0.0, 1.0)):
             t = TransformStamped()
             t.header.stamp = self.get_clock().now().to_msg()
@@ -136,7 +157,9 @@ class World(Node):
                tf('base_link', 'spray_tip', (0.30, 0.0, 0.20), tip_quat)]
         if with_map:
             tfs.append(tf('map', 'base_link', (0.0, 0.0, 0.0)))
-        self.tf_static.sendTransform(tfs)
+        with self._lock:
+            self.dyn_tfs = [t for t in tfs if t.child_frame_id in self.dynamic]
+        self.tf_static.sendTransform([t for t in tfs if t.child_frame_id not in self.dynamic])
 
     def start_yaw_ramp(self, rate):
         with self._lock:
@@ -174,6 +197,12 @@ class World(Node):
             js.name = list(JOINT_NAMES) + ['left_wheel_joint', 'right_wheel_joint']
             js.position = [yaw] + list(PARK[1:]) + [0.0, 0.0]
             self.js_pub.publish(js)
+        with self._lock:
+            dyn = self.dyn_tfs if self.dyn_tf_on else []
+        if dyn:
+            for t in dyn:
+                t.header.stamp = now
+            self.tf_dynamic.sendTransform(dyn)
 
     def _tick_10hz(self):
         with self._lock:
@@ -245,8 +274,9 @@ def spinner(ros):
 
 
 @pytest.fixture
-def world(spinner):
-    w = World()
+def world(spinner, request):
+    # tests may pass World options with @pytest.mark.parametrize('world', [...], indirect=True)
+    w = World(**getattr(request, 'param', {}))
     spinner.add(w)
     yield w
     spinner.stop()
@@ -306,6 +336,17 @@ def zones_file(tmp_path):
         'frame_id': 'map',
         'zones': [{'name': 'test_bed', 'kind': 'flower_bed', 'margin': 0.0,
                    'polygon': [[0.2, -0.1], [0.4, -0.1], [0.4, 0.1], [0.2, 0.1]]}]}))
+    return str(p)
+
+
+@pytest.fixture
+def far_zones_file(tmp_path):
+    """A zones file whose only zone is 5 m away: the keepout check is on and passes."""
+    p = tmp_path / 'far_zones.yaml'
+    p.write_text(yaml.safe_dump({
+        'frame_id': 'map',
+        'zones': [{'name': 'far_bed', 'kind': 'flower_bed', 'margin': 0.5,
+                   'polygon': [[5.0, 5.0], [6.0, 5.0], [6.0, 6.0], [5.0, 6.0]]}]}))
     return str(p)
 
 
@@ -477,3 +518,80 @@ def test_shutdown_during_spray(spinner, ctl, world, relay):
     # the subscriber saw the spray start, and the last word on /spray/relay is "off"
     assert wait_until(lambda: True in world.relay_msgs and world.relay_msgs[-1] is False, 5.0), \
         world.relay_msgs
+
+
+# --- fix round 1: wall time only, TF age, failing relay writes -------------------------------
+
+def test_refuses_use_sim_time(ros):
+    relay = FakeRelay()
+    with pytest.raises(RuntimeError, match='use_sim_time must be false'):
+        scn.SprayController(relay=relay, parameter_overrides=[
+            Parameter('start_armed', value=True), Parameter('use_sim_time', value=True)])
+    assert [on for _, on in relay.calls] == [False]
+
+
+def test_wall_time_only(ctl):
+    # both timers run on the steady clock, and use_sim_time cannot be switched on later
+    assert [t.clock.clock_type for t in ctl.timers] == [ClockType.STEADY_TIME] * 2
+    assert not ctl.set_parameters([Parameter('use_sim_time', value=True)])[0].successful
+    assert ctl.get_parameter('use_sim_time').value is False
+    assert not ctl.get_clock().ros_time_is_active
+    assert ctl.check() == ''
+
+
+@pytest.mark.parametrize('world', [{'dynamic': ('spray_tip',)}], indirect=True,
+                         ids=['dynamic_tip'])
+def test_nozzle_tf_old(ctl, world, relay):
+    t_stop = time.monotonic()
+    world.dyn_tf_on = False              # e.g. robot_state_publisher died
+    reason = 'nozzle check impossible: transform base_link -> spray_tip is old'
+    assert wait_until(lambda: ctl.check() == reason, 5.0)
+    assert time.monotonic() - t_stop >= 0.4   # only after joint_states_timeout (0.5 s)
+    assert trigger(world) == (False, reason)
+    assert not relay.ever_on()
+
+
+@pytest.mark.parametrize('world', [{'dynamic': ('base_link',), 'with_map': True}],
+                         indirect=True, ids=['dynamic_map'])
+def test_keepout_tf_old(ctl, world, relay, far_zones_file):
+    set_param(ctl, 'zones_file', far_zones_file)
+    assert wait_until(lambda: ctl.check() == '', 5.0)   # fresh map TF: keepout passes
+    t_stop = time.monotonic()
+    world.dyn_tf_on = False              # e.g. localisation stopped
+    reason = 'keepout check impossible: transform map -> base_link is old'
+    assert wait_until(lambda: ctl.check() == reason, 5.0)
+    assert time.monotonic() - t_stop >= 0.9   # only after odom_timeout (1.0 s)
+    assert trigger(world) == (False, reason)
+    assert not relay.ever_on()
+
+
+@pytest.mark.parametrize('world', [{'dynamic': ('spray_tip', 'base_link'), 'with_map': True}],
+                         indirect=True, ids=['dynamic_tip_and_map'])
+def test_fresh_dynamic_tf_sprays(ctl, world, relay, far_zones_file):
+    set_param(ctl, 'zones_file', far_zones_file)
+    assert trigger(world) == (True, 'sprayed 1.00 s')
+    (t_on, t_off), = relay.on_periods()
+    assert t_off - t_on == pytest.approx(1.0, abs=0.15)
+
+
+def test_relay_on_write_fails(ctl, world, relay):
+    relay.fail_on = True
+    ok, message = trigger(world)
+    assert not ok and message.startswith('error: OSError')
+    assert not relay.ever_on() and relay.calls[-1][1] is False
+    assert wait_until(lambda: True in world.relay_msgs and world.relay_msgs[-1] is False, 5.0)
+
+
+def test_relay_off_write_fails_then_retried(ctl, world, relay):
+    future, t_on = start_spray(world, relay)
+    relay.fail_off = 4                   # the next 4 OFF writes fail (a passing lgpio error)
+    r = result(future)
+    assert not r.success and r.message.startswith('RELAY OFF FAILED')
+    # the monitor re-issues OFF every tick until a write works, then reports the relay off
+    assert wait_until(lambda: relay.failed == 4 and relay.calls[-1][1] is False, 3.0)
+    (_, t_off), = relay.on_periods()
+    assert t_off - t_on <= 1.0 + 0.5
+    assert wait_until(lambda: world.relay_msgs[-1] is False, 5.0)
+    ok, message = trigger(world)        # and it never sprays again until restarted
+    assert not ok and message.startswith('relay fault: OSError')
+    assert len(relay.on_periods()) == 1

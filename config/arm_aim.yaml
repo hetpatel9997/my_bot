@@ -5,6 +5,9 @@
 
 spray_controller:
   ros__parameters:
+    # Always wall time, also in Gazebo: the node refuses to start with use_sim_time true (sim
+    # time can run slow or stop; the spray and the safety timers count real seconds).
+    use_sim_time: false
     # sim = no hardware, the relay state is only published on /spray/relay (the sim has no pump).
     # gpio = real relay on a Pi pin through lgpio (sub-project 4; not installed on the VM).
     backend: sim

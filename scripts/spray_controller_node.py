@@ -48,6 +48,7 @@ import yaml
 
 import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (DurabilityPolicy, QoSProfile, ReliabilityPolicy,
@@ -214,6 +215,14 @@ class SprayController(Node):
         if relay is not None:
             relay.set(False)
         super().__init__('spray_controller', **node_kwargs)
+        # This node always runs on the steady (wall) clock: the real relay times real seconds,
+        # and sim time can run slow or stop (gzserver froze before, CLAUDE.md). use_sim_time
+        # would also subscribe /clock with rclpy's default QoS event handler, which brings back
+        # the executor stalls described in _subscribe. So refuse it (rule R15).
+        if self.get_parameter('use_sim_time').value:
+            Node.destroy_node(self)
+            raise RuntimeError('use_sim_time must be false: spray_controller runs on wall time '
+                               '(do not pass use_sim_time to this node)')
         for name, (default, doc) in PARAMS.items():
             self.declare_parameter(name, default, ParameterDescriptor(
                 description=doc, read_only=name not in RUNTIME_PARAMS))
@@ -241,6 +250,7 @@ class SprayController(Node):
         self._closed = False         # destroy_node ran: relay released, nothing may switch it
         self._relay_on = False
         self._relay_fault = ''       # an OFF write failed: refuse everything from then on
+        self._off_failing = False    # the latest OFF write failed: the monitor keeps retrying
         self._armed = initial_armed(backend, p['start_armed'])
         self._busy = False           # a trigger is being handled (checks or spray)
         self._idle = threading.Event()  # set while no trigger is being handled
@@ -267,6 +277,9 @@ class SprayController(Node):
         self.add_on_set_parameters_callback(self._on_set_parameters)
 
         self._tf = Buffer()          # fed by our own /tf subscriptions below (see _subscribe)
+        # child frame -> (parent frame, arrival time; None = static, never old). tf2 keeps the
+        # last sample of a link that stopped updating with no time limit, so we track ages.
+        self._tf_links = {}
         self._e_stop_topic = p['e_stop_topic']
         self._warned_publishers = set()
 
@@ -295,8 +308,9 @@ class SprayController(Node):
         self.create_service(SetBool, '/spray/arm', self._on_arm, callback_group=group)
         self.create_service(Trigger, '/spray/trigger', self._on_trigger,
                             callback_group=self._trigger_group)
-        self.create_timer(1.0 / MONITOR_HZ, self._on_monitor, callback_group=group)
-        self.create_timer(1.0, self._on_status, callback_group=group)
+        steady = Clock(clock_type=ClockType.STEADY_TIME)   # never sim time (see above)
+        self.create_timer(1.0 / MONITOR_HZ, self._on_monitor, callback_group=group, clock=steady)
+        self.create_timer(1.0, self._on_status, callback_group=group, clock=steady)
 
         if backend != 'sim' and p['start_armed']:
             self.get_logger().warn(f'start_armed ignored with backend {backend}: starting '
@@ -352,7 +366,8 @@ class SprayController(Node):
 
         Order: ON is announced before the pump starts, OFF after it stopped, so /spray/relay
         never says false while the pump might be running. An OFF write never raises: it logs,
-        marks a relay fault (every later trigger is refused) and leaves /spray/relay at true.
+        marks a relay fault (every later trigger is refused) and leaves /spray/relay as it was;
+        the monitor then re-issues OFF on every tick until a write works.
         """
         if self._closed:
             return                  # destroy_node already switched it off and released it
@@ -365,9 +380,19 @@ class SprayController(Node):
             self._relay.set(False)
         except Exception as e:
             self._relay_fault = f'{type(e).__name__}: {e}'
-            self.get_logger().fatal(f'RELAY OFF FAILED ({self._relay_fault}): the pump may '
-                                    f'still be on, check the hardware')
+            if not self._off_failing:
+                self.get_logger().fatal(f'RELAY OFF FAILED ({self._relay_fault}): the pump may '
+                                        f'still be on, check the hardware; retrying at 20 Hz')
+            else:
+                self.get_logger().error(f'relay OFF still failing: {self._relay_fault}',
+                                        throttle_duration_sec=5.0)
+            self._off_failing = True
             return
+        if self._off_failing:
+            self._off_failing = False
+            always_publish = True   # the relay is off again: say so
+            self.get_logger().error('relay OFF write worked again; every trigger stays refused '
+                                    'until the node is restarted and the hardware checked')
         if self._relay_on or always_publish:
             self._relay_on = False
             self._publish_relay(False)
@@ -401,16 +426,22 @@ class SprayController(Node):
             return 'arm moving'
         return ''
 
-    def _nozzle_hit(self):
+    def _nozzle_hit(self, now):
         """Where the nozzle line meets the ground (z = 0 in base_link): (point, '') or (None, why).
 
         The nozzle must point down (spray_tip +z has z < -0.1 in base_link) and the line must hit
         the ground within ground_reach of arm_base: pointing up or out across the yard -> refuse.
+        Every moving TF link used must be fresh (joint_states_timeout): a frozen arm TF (e.g.
+        robot_state_publisher died) would otherwise pass with an old pose.
         """
         try:
             p, q = _tf_parts(self._tf.lookup_transform(self._base, self._nozzle, Time()))
         except (TransformException, ValueError):
             return None, f'nozzle check impossible: no transform {self._base} <- {self._nozzle}'
+        for frame in (self._nozzle, self._arm_base):
+            old = self._old_link(self._base, frame, self._js_timeout, now)
+            if old:
+                return None, f'nozzle check impossible: transform {old} is old'
         d = _rotate(q, (0.0, 0.0, 1.0))
         if not (d[2] < NOZZLE_MIN_DOWN) or not (p[2] >= 0.0):
             return None, 'nozzle not pointing at the ground'
@@ -431,7 +462,7 @@ class SprayController(Node):
             return 'robot moving'
         return ''
 
-    def _keepout_reason(self, hit):
+    def _keepout_reason(self, hit, now):
         """'' if the ground hit point (base_link) is outside every keepout zone + its margin."""
         if self._zones_error:
             return f'keepout check impossible: {self._zones_error}'
@@ -444,6 +475,9 @@ class SprayController(Node):
         except (TransformException, ValueError):
             # zones set but we cannot tell where we are: never guess, refuse
             return f'keepout check impossible: no transform {self._map} <- {self._base}'
+        old = self._old_link(self._map, self._base, self._odom_timeout, now)
+        if old:                     # e.g. localisation stopped: the robot may be elsewhere
+            return f'keepout check impossible: transform {old} is old'
         x, y, _ = _rotate(q, hit) + t
         for name, poly, margin in self._zones:
             d = polygon_distance(poly, np.array([x]), np.array([y]))[0]
@@ -473,7 +507,7 @@ class SprayController(Node):
         reason = self._arm_reason(now)
         if reason:
             return reason
-        hit, reason = self._nozzle_hit()
+        hit, reason = self._nozzle_hit(now)
         if reason:
             return reason
         # 3. Robot still: driving while spraying misses the weed and wets everything on the way.
@@ -481,7 +515,7 @@ class SprayController(Node):
         if reason:
             return reason
         # 4. Keepout (CLAUDE.md hard rule): never spray into a flower bed / the pool zone.
-        reason = self._keepout_reason(hit)
+        reason = self._keepout_reason(hit, now)
         if reason:
             return reason
         # 5. No e-stop.
@@ -533,15 +567,40 @@ class SprayController(Node):
         self._set_transforms(msg, self._tf.set_transform)
 
     def _on_tf_static(self, msg):
-        self._set_transforms(msg, self._tf.set_transform_static)
+        self._set_transforms(msg, self._tf.set_transform_static, static=True)
 
-    def _set_transforms(self, msg, setter):
+    def _set_transforms(self, msg, setter, static=False):
+        now = time.monotonic()
         for t in msg.transforms:
             try:
                 setter(t, 'default_authority')
             except Exception as e:   # one bad transform from elsewhere must not stop this node
                 self.get_logger().warn(f'ignored a bad transform {t.header.frame_id} -> '
                                        f'{t.child_frame_id}: {e}', throttle_duration_sec=5.0)
+                continue
+            # arrival time (not the stamp): independent of sim time and of the sender's clock
+            self._tf_links[t.child_frame_id] = (t.header.frame_id, None if static else now)
+
+    def _old_link(self, target, source, max_age, now):
+        """The first dynamic TF link between two frames not updated for max_age, or ''.
+
+        Walks both frames up to their common ancestor using the parents we received, and
+        checks the arrival time of every dynamic link on that path (static links never age).
+        """
+        def line(frame):            # frame, parent, grandparent, ...
+            out = [frame]
+            while out[-1] in self._tf_links and len(out) < 100:
+                out.append(self._tf_links[out[-1]][0])
+            return out
+        line_s, line_t = line(source), line(target)
+        common = next((f for f in line_s if f in line_t), None)
+        if common is None:
+            return ''               # not connected: the lookup itself has already failed
+        for child in line_s[:line_s.index(common)] + line_t[:line_t.index(common)]:
+            parent, arrived = self._tf_links[child]
+            if arrived is not None and not (now - arrived <= max_age):
+                return f'{parent} -> {child}'
+        return ''
 
     def _on_odom(self, msg):
         now = time.monotonic()
@@ -586,6 +645,10 @@ class SprayController(Node):
                         self._spraying = False
                         self._set_relay_locked(False)
                         self._abort_event.set()
+                elif self._relay_fault or self._relay_on:
+                    # Not spraying, yet an OFF write failed (gpio) or the relay may be on:
+                    # re-issue OFF on every tick. Triggers stay refused ('relay fault').
+                    self._set_relay_locked(False)
         except Exception as e:
             with self._lock:
                 self._abort_locked(f'error: {type(e).__name__}: {e}')
@@ -624,6 +687,10 @@ class SprayController(Node):
 
     def _on_set_parameters(self, params):
         for prm in params:
+            if prm.name == 'use_sim_time' and prm.value:
+                # runs before rclpy's TimeSource callback, so /clock is never subscribed
+                return SetParametersResult(successful=False,
+                                           reason='spray_controller always runs on wall time')
             if prm.name == 'spray_seconds':
                 v = prm.value
                 if (isinstance(v, bool) or not isinstance(v, (int, float))
@@ -652,6 +719,7 @@ class SprayController(Node):
                 return response
             self._busy = True
             self._idle.clear()
+            had_fault = bool(self._relay_fault)
         try:
             response.success, response.message = self._spray_once()
         except Exception as e:
@@ -661,11 +729,17 @@ class SprayController(Node):
             with self._lock:
                 self._spraying = False
                 self._set_relay_locked(False)   # SAFETY: whatever happened, it ends OFF
+                if self._relay_fault and not had_fault:
+                    # the spray ended but the relay did not switch off: never report success
+                    response.success = False
+                    response.message = f'RELAY OFF FAILED: {self._relay_fault}'
                 self._busy = False
                 self._last = response.message
                 self._idle.set()
         if response.success:
             self.get_logger().info(response.message)
+        elif response.message.startswith('RELAY'):
+            self.get_logger().error(f'spray ended but {response.message}')
         elif response.message.startswith(('aborted', 'error')):
             self.get_logger().warn(f'spray {response.message} (relay off)')
         else:
