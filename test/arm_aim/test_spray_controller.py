@@ -130,9 +130,15 @@ class World(Node):
         self.arm_cli = self.create_client(SetBool, '/spray/arm', callback_group=group)
         self.relay_msgs = []             # every /spray/relay message, in order
         # no QoS event handler: avoids rclpy Humble's executor busy loop (see the controller's
-        # _subscribe), which would stall this whole test process
+        # _subscribe), which would stall this whole test process.
+        # Depth 10, not 1: when the ON write fails, the controller publishes true and false within
+        # ~1 ms; a depth-1 reader keeps only the newer one if both arrive before this process
+        # takes the first (seen under CPU load: 2 of 10 runs of test_relay_on_write_fails lost
+        # the `true`). Latched like the publisher, so a late join still gets the current state.
         self.create_subscription(Bool, '/spray/relay', lambda m: self.relay_msgs.append(m.data),
-                                 LATCHED, callback_group=group, event_callbacks=(
+                                 QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
+                                            durability=DurabilityPolicy.TRANSIENT_LOCAL),
+                                 callback_group=group, event_callbacks=(
                                      SubscriptionEventCallbacks(use_default_callbacks=False)))
         self.create_timer(0.05, self._tick_20hz, callback_group=group)
         self.create_timer(0.1, self._tick_10hz, callback_group=group)
@@ -622,7 +628,8 @@ def test_relay_on_write_fails(ctl, world, relay):
     ok, message = trigger(world)
     assert not ok and message.startswith('error: OSError')
     assert not relay.ever_on() and relay.calls[-1][1] is False
-    assert wait_until(lambda: True in world.relay_msgs and world.relay_msgs[-1] is False, 5.0)
+    assert wait_until(lambda: True in world.relay_msgs and world.relay_msgs[-1] is False, 5.0), \
+        world.relay_msgs
 
 
 def test_relay_off_write_fails_then_retried(ctl, world, relay):
