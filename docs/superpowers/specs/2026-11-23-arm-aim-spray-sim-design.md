@@ -166,7 +166,9 @@ package would not reach the Pi with the usual `git pull`. MoveIt's launch helper
   convert). One cycle at a time: a target that arrives while busy is ignored and logged.
 - Cycle: SOLVE (aim solver) -> VALIDATE (ask MoveIt's `/check_state_validity` for each candidate,
   in rank order, until one is collision-free) -> MOVE (MoveGroup action, joint goal, plan and
-  execute) -> ARRIVED? (all joints within 1 deg for 0.3 s, timeout 15 s) -> SPRAY (call
+  execute) -> ARRIVED? (all joints within 1 deg for 0.3 s AND settled: each joint moved no more
+  than 0.01 rad/s over those 0.3 s — half the spray controller's stillness limit, added
+  2026-11-24 after the end-to-end test; timeout 15 s) -> SPRAY (call
   `/spray/trigger`, only if parameter `spray` is true) -> PARK (MoveGroup to `park`) -> REPORT.
 - Measures the aim error after arriving: distance from the target to the nozzle's centre line,
   taken from the `spray_tip` TF (not from the solver's own numbers).
@@ -176,7 +178,14 @@ package would not reach the Pi with the usual `git pull`. MoveIt's launch helper
   (`std_srvs/Trigger`) parks the arm on demand.
 - E-stop: if `/e_stop` turns true during a cycle, the node cancels the MoveIt goal (the arm stops
   where it is), does not spray, and stays in ERROR until the e-stop is released and `/aim/park`
-  is called.
+  is called. This holds at ANY point of a cycle, even before the arm moved, and a short
+  true -> false pulse is remembered (added 2026-11-24).
+- Start gate (added 2026-11-24, final review): a cycle only STARTS when the latest
+  `/safety_state` is fresh (<= 0.5 s) and not `stop`; otherwise the target is refused
+  (`safety_state stop` / `safety_state missing or old`) and nothing moves. safety_state_node
+  reports an e-stop as `stop`, so an e-stop pressed before weed_aim started still blocks it.
+  `/e_stop` is read both volatile and transient-local. `/aim/park` is not gated on
+  `/safety_state` (an arm stopped mid-move can be seen by the LiDAR itself).
 
 ### 4.5 Spray controller (`scripts/spray_controller_node.py`)
 - The only code that switches the relay. Only standard ROS message/service types (no new
@@ -196,6 +205,10 @@ package would not reach the Pi with the usual `git pull`. MoveIt's launch helper
   2. Arm in place: all arm joints still (speed below 0.02 rad/s for 0.3 s), and the nozzle line
      (from TF) hits the ground within 0.8 m of the arm base, i.e. it points down at the ground,
      not up or out. (The aim node has already checked the joints are within 1 deg of the goal.)
+     Added 2026-11-24 (final review): that ground-hit point must lie OUTSIDE `robot_box`
+     (base_link, x -0.56..0.21, y -0.19..0.19 = the LiDAR self-filter box + 0.03 m), else
+     `nozzle aimed at the robot` — e.g. the parked nozzle points straight down onto the phone
+     holder. Real aims hit 0.25 m or more ahead, so they are unaffected.
   3. Robot still: `/odom` speed below 0.01 m/s and turn rate below 0.02 rad/s for 0.5 s; no
      `/odom` in the last 1 s also counts as a failure.
   4. Not in a keepout zone: if `zones_file` is set (same format as `config/backyard_zones.yaml`,
