@@ -87,15 +87,11 @@ def generate_launch_description():
                 )]), launch_arguments={'use_sim_time': 'true'}.items()
     )
 
-    # In sim the arm joint states now come from Gazebo (joint_broad), so the stub must NOT publish
-    # the arm joints too (two sources would fight over the arm's TF). It keeps only the real
-    # robot's caster joints, as on the robot; Gazebo's caster is a fixed ball, so
-    # robot_state_publisher ignores those two names here. launch_robot keeps the full list.
-    arm_stub = Node(package=package_name, executable='arm_joint_state_stub.py', name='arm_joint_state_stub',
-                    output='screen',
-                    parameters=[os.path.join(get_package_share_directory(package_name), 'config', 'arm_joint_state_stub.yaml'),
-                                {'joints': ['caster_swivel_joint', 'caster_wheel_joint'], 'positions': [0.0, 0.0]},
-                                {'use_sim_time': True}])
+    # No arm_joint_state_stub in sim. Every joint it publishes is covered here already: the arm
+    # joints come from Gazebo (joint_broad; a second source would fight over the arm's TF), and the
+    # caster joints (caster_swivel_joint, caster_wheel_joint) do not exist in the sim URDF at all
+    # (Gazebo's caster is a fixed ball, weedbot_body.xacro), so publishing them only made move_group
+    # log "Joint 'caster_...' not found in model" errors. launch_robot keeps the full stub.
 
     # Launch them all!
     return LaunchDescription([
@@ -115,6 +111,5 @@ def generate_launch_description():
         arm_after_joint_broad,
         imu_ekf,
         twist_mux,
-        safety,
-        arm_stub
+        safety
     ])
