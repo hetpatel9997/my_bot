@@ -29,8 +29,7 @@ Cleanup afterwards: ~/dev_ws/src/my_bot/scripts/sim_cleanup.sh --domain 42 (must
 then `ros2 daemon stop` with sim_env.sh sourced. sim_cleanup.sh does not look for move_group
 (2026-11-23), and stopping its `ros2 launch` did not stop it in the first run, so check with
 `pgrep -af moveit_ros_move_group` and stop only the test's own one (domain 42):
-  for p in $(pgrep -f moveit_ros_move_group/move_group); do
-    tr '\\0' '\\n' < /proc/$p/environ | grep -qx ROS_DOMAIN_ID=42 && kill -INT $p; done
+  for p in $(pgrep -f move_group); do grep -qzx ROS_DOMAIN_ID=42 /proc/$p/environ && kill $p; done
 """
 import math
 import os
@@ -62,6 +61,11 @@ REACH_S = 15.0                          # s sim time from sending the goal
 VEL_SCALE = ACC_SCALE = 0.5             # the same scaling the aim node will use
 PLAN_TIME = 5.0                         # s, OMPL planning time limit
 WAIT_MOVEIT_S = 120.0                   # s wall, for move_group to come up after the launch
+# move_group offers its services a fraction of a second after it starts, but its OWN action client
+# to arm_controller needs a moment more to find the controller (DDS discovery). A goal sent in
+# that gap fails at once with CONTROL_FAILED ("Action client not connected to action server" in
+# the move_group log; seen 2026-11-23 with the goal 0.23 s after start), so wait this long first.
+SETTLE_S = 3.0                          # s wall
 
 
 class Fail(Exception):
@@ -122,7 +126,11 @@ class MoveItCheck(Node):
         rest = max(1.0, WAIT_MOVEIT_S - (time.monotonic() - t0))
         if not self.move_action.wait_for_server(timeout_sec=rest):
             raise Fail('no action server /move_action (move_group not ready?)')
-        print(f'  move_group ready after {time.monotonic() - t0:.1f} s')
+        print(f'  move_group ready after {time.monotonic() - t0:.1f} s; waiting {SETTLE_S:.0f} s '
+              'more for its arm_controller connection')
+        t_settle = time.monotonic()
+        while time.monotonic() - t_settle < SETTLE_S:
+            rclpy.spin_once(self, timeout_sec=0.05)
 
     # ---- validity -----------------------------------------------------------------------
     def check_valid(self, target, label):
@@ -186,8 +194,11 @@ class MoveItCheck(Node):
             raise Fail(f'{label}: no MoveGroup result within {REACH_S:.0f} s sim')
         res = result.result().result
         if res.error_code.val != MoveItErrorCodes.SUCCESS:
+            hint = (' (see $ARM_TEST_LOG/arm_aim.log: "Action client not connected" = move_group '
+                    'had not found arm_controller yet)'
+                    if res.error_code.val == MoveItErrorCodes.CONTROL_FAILED else '')
             raise Fail(f'{label}: MoveGroup error_code {res.error_code.val} '
-                       f'({error_name(res.error_code.val)})')
+                       f'({error_name(res.error_code.val)}){hint}')
         if not ok:
             bad = {j: round(math.degrees(d), 2) for j, d in off().items() if abs(d) > REACH_TOL}
             raise Fail(f'{label}: MoveIt said SUCCESS but /joint_states is off by more than 1 deg '

@@ -308,7 +308,10 @@
 
   <!-- =============================== phone mount =============================== -->
   <!-- shelf on the front of the body, wedge bracket on it (drawn as its bounding box), cradle slab
-       tilted like the phone (perpendicular to the camera axis), visual only -->
+       tilted like the phone (perpendicular to the camera axis). Each part has a collision shape equal
+       to its visual: the holder and the phone sit right under the parked nozzle (5 cm below its tip),
+       and without them MoveIt would plan the nozzle straight into the phone. They lie below both LD06
+       scan planes (tank 0.378, temporary front mount 0.268), so the LiDAR does not see them. -->
   <joint name="phone_shelf_joint" type="fixed">
     <parent link="base_link"/>
     <child link="phone_shelf"/>
@@ -316,6 +319,7 @@
   </joint>
   <link name="phone_shelf">
     <visual><geometry><box size="${phone_shelf_x1-body_x_front} ${phone_shelf_w} ${phone_base_z-phone_shelf_z0}"/></geometry><material name="petg_orange"/></visual>
+    <collision><geometry><box size="${phone_shelf_x1-body_x_front} ${phone_shelf_w} ${phone_base_z-phone_shelf_z0}"/></geometry></collision>
   </link>
   <joint name="phone_bracket_joint" type="fixed">
     <parent link="base_link"/>
@@ -324,6 +328,7 @@
   </joint>
   <link name="phone_bracket">
     <visual><geometry><box size="${phone_bracket_x1-phone_bracket_x} ${phone_bracket_w} ${phone_bracket_z1-phone_base_z}"/></geometry><material name="petg_orange"/></visual>
+    <collision><geometry><box size="${phone_bracket_x1-phone_bracket_x} ${phone_bracket_w} ${phone_bracket_z1-phone_base_z}"/></geometry></collision>
   </link>
   <!-- cradle: slab x = thickness, z = along the phone (leaning forward by phone_tilt from vertical);
        placed by its bounding box (x phone_cradle_x0..x1, top phone_cradle_z1) -->
@@ -336,6 +341,7 @@
   </joint>
   <link name="phone_cradle">
     <visual><geometry><box size="${phone_cradle_t} ${phone_cradle_w} ${cradle_l}"/></geometry><material name="petg_blue"/></visual>
+    <collision><geometry><box size="${phone_cradle_t} ${phone_cradle_w} ${cradle_l}"/></geometry></collision>
   </link>
   <!-- phone_mount -> phone_optical -> phone_link at phone_xyz / phone_tilt (as phone_mount.xacro) -->
   <joint name="phone_mount_joint" type="fixed">
@@ -359,6 +365,7 @@
   </joint>
   <link name="phone_body">
     <visual><geometry><box size="0.1496 0.0715 0.0083"/></geometry><material name="phone"/></visual>
+    <collision><geometry><box size="0.1496 0.0715 0.0083"/></geometry></collision>
   </link>
   <joint name="phone_link_joint" type="fixed">
     <parent link="phone_optical"/>

@@ -28,12 +28,21 @@
     <joint name="wrist_roll" value="0.0"/>
   </group_state>
 
-  <!-- Part pairs that touch BY DESIGN (bolted together, or joined by one joint), so MoveIt does
-       not call them collisions. Do not edit by hand: made by test/arm_aim/gen_disable_collisions.py
-       (after a URDF change run it with its write option, see its header, which also explains
-       why each pair is here). Every
-       other pair is checked, e.g. the nozzle or forearm against the body, tank or LiDAR. -->
+  <!-- What MoveIt collision-checks: every pair of links that both HAVE a collision shape in the
+       URDF, except the disabled pairs below. Those touch BY DESIGN: parts bolted together (body,
+       frame, tank, LiDAR, phone holder, arm base plate; an arm link and its servo box) and parts
+       joined by one joint (turret housing on the cover, wheels on the body, upper arm and
+       forearm at the elbow). So the upper arm, forearm, wrist and nozzle with their servo boxes
+       ARE checked against the body, frame, tank, LiDAR, wheels, caster wheel and phone holder,
+       and the turret against the forearm, wrist and nozzle; the turret and its servo box are not
+       checked against the body parts it stands on.
+       NEVER checked: links without a collision shape, named in the first generated line (frames,
+       visual-only parts inside the body shell, the caster bracket behind the tank, the spray_tip
+       marker; why each is safe: see the generator's header).
+       Do not edit the block by hand: made by test/arm_aim/gen_disable_collisions.py (after a URDF
+       change run it with its write option, see its header). -->
   <!-- BEGIN generated -->
+  <!-- never checked (no collision shape): arm_yaw_servo, base_footprint, base_link, caster_bracket, caster_socket, cheek_-1, cheek_1, imu_link, laser_frame, phone_link, phone_mount, phone_optical, spray_tip, top_cover -->
   <disable_collisions link1="arm_base" link2="arm_turret" reason="Adjacent"/>
   <disable_collisions link1="arm_base" link2="body_shell" reason="Adjacent"/>
   <disable_collisions link1="arm_base" link2="caster_wheel" reason="Adjacent"/>
@@ -42,15 +51,26 @@
   <disable_collisions link1="arm_base" link2="left_wheel" reason="Adjacent"/>
   <disable_collisions link1="arm_base" link2="lidar_body" reason="Adjacent"/>
   <disable_collisions link1="arm_base" link2="lidar_puck" reason="Adjacent"/>
+  <disable_collisions link1="arm_base" link2="phone_body" reason="Adjacent"/>
+  <disable_collisions link1="arm_base" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="arm_base" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="arm_base" link2="phone_shelf" reason="Adjacent"/>
   <disable_collisions link1="arm_base" link2="right_wheel" reason="Adjacent"/>
   <disable_collisions link1="arm_base" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="arm_base" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="arm_turret" link2="body_shell" reason="Adjacent"/>
   <disable_collisions link1="arm_turret" link2="caster_wheel" reason="Adjacent"/>
   <disable_collisions link1="arm_turret" link2="chassis" reason="Adjacent"/>
   <disable_collisions link1="arm_turret" link2="ebox" reason="Adjacent"/>
   <disable_collisions link1="arm_turret" link2="lidar_body" reason="Adjacent"/>
   <disable_collisions link1="arm_turret" link2="lidar_puck" reason="Adjacent"/>
+  <disable_collisions link1="arm_turret" link2="phone_body" reason="Adjacent"/>
+  <disable_collisions link1="arm_turret" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="arm_turret" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="arm_turret" link2="phone_shelf" reason="Adjacent"/>
+  <disable_collisions link1="arm_turret" link2="shoulder_servo" reason="Adjacent"/>
   <disable_collisions link1="arm_turret" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="arm_turret" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="arm_turret" link2="upper_arm" reason="Adjacent"/>
   <disable_collisions link1="body_shell" link2="caster_wheel" reason="Adjacent"/>
   <disable_collisions link1="body_shell" link2="chassis" reason="Adjacent"/>
@@ -58,38 +78,103 @@
   <disable_collisions link1="body_shell" link2="left_wheel" reason="Adjacent"/>
   <disable_collisions link1="body_shell" link2="lidar_body" reason="Adjacent"/>
   <disable_collisions link1="body_shell" link2="lidar_puck" reason="Adjacent"/>
+  <disable_collisions link1="body_shell" link2="phone_body" reason="Adjacent"/>
+  <disable_collisions link1="body_shell" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="body_shell" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="body_shell" link2="phone_shelf" reason="Adjacent"/>
   <disable_collisions link1="body_shell" link2="right_wheel" reason="Adjacent"/>
   <disable_collisions link1="body_shell" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="body_shell" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="caster_wheel" link2="chassis" reason="Adjacent"/>
   <disable_collisions link1="caster_wheel" link2="ebox" reason="Adjacent"/>
   <disable_collisions link1="caster_wheel" link2="left_wheel" reason="Adjacent"/>
   <disable_collisions link1="caster_wheel" link2="lidar_body" reason="Adjacent"/>
   <disable_collisions link1="caster_wheel" link2="lidar_puck" reason="Adjacent"/>
+  <disable_collisions link1="caster_wheel" link2="phone_body" reason="Adjacent"/>
+  <disable_collisions link1="caster_wheel" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="caster_wheel" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="caster_wheel" link2="phone_shelf" reason="Adjacent"/>
   <disable_collisions link1="caster_wheel" link2="right_wheel" reason="Adjacent"/>
   <disable_collisions link1="caster_wheel" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="caster_wheel" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="chassis" link2="ebox" reason="Adjacent"/>
   <disable_collisions link1="chassis" link2="left_wheel" reason="Adjacent"/>
   <disable_collisions link1="chassis" link2="lidar_body" reason="Adjacent"/>
   <disable_collisions link1="chassis" link2="lidar_puck" reason="Adjacent"/>
+  <disable_collisions link1="chassis" link2="phone_body" reason="Adjacent"/>
+  <disable_collisions link1="chassis" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="chassis" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="chassis" link2="phone_shelf" reason="Adjacent"/>
   <disable_collisions link1="chassis" link2="right_wheel" reason="Adjacent"/>
   <disable_collisions link1="chassis" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="chassis" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="ebox" link2="left_wheel" reason="Adjacent"/>
   <disable_collisions link1="ebox" link2="lidar_body" reason="Adjacent"/>
   <disable_collisions link1="ebox" link2="lidar_puck" reason="Adjacent"/>
+  <disable_collisions link1="ebox" link2="phone_body" reason="Adjacent"/>
+  <disable_collisions link1="ebox" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="ebox" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="ebox" link2="phone_shelf" reason="Adjacent"/>
   <disable_collisions link1="ebox" link2="right_wheel" reason="Adjacent"/>
   <disable_collisions link1="ebox" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="ebox" link2="turret_servo" reason="Adjacent"/>
+  <disable_collisions link1="elbow_servo" link2="forearm" reason="Adjacent"/>
+  <disable_collisions link1="elbow_servo" link2="shoulder_servo" reason="Adjacent"/>
+  <disable_collisions link1="elbow_servo" link2="upper_arm" reason="Adjacent"/>
+  <disable_collisions link1="elbow_servo" link2="wrist" reason="Adjacent"/>
+  <disable_collisions link1="elbow_servo" link2="wrist_servos" reason="Adjacent"/>
+  <disable_collisions link1="forearm" link2="shoulder_servo" reason="Adjacent"/>
   <disable_collisions link1="forearm" link2="upper_arm" reason="Adjacent"/>
   <disable_collisions link1="forearm" link2="wrist" reason="Adjacent"/>
+  <disable_collisions link1="forearm" link2="wrist_servos" reason="Adjacent"/>
   <disable_collisions link1="left_wheel" link2="lidar_body" reason="Adjacent"/>
   <disable_collisions link1="left_wheel" link2="lidar_puck" reason="Adjacent"/>
+  <disable_collisions link1="left_wheel" link2="phone_body" reason="Adjacent"/>
+  <disable_collisions link1="left_wheel" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="left_wheel" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="left_wheel" link2="phone_shelf" reason="Adjacent"/>
   <disable_collisions link1="left_wheel" link2="spray_tank" reason="Adjacent"/>
   <disable_collisions link1="lidar_body" link2="lidar_puck" reason="Adjacent"/>
+  <disable_collisions link1="lidar_body" link2="phone_body" reason="Adjacent"/>
+  <disable_collisions link1="lidar_body" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="lidar_body" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="lidar_body" link2="phone_shelf" reason="Adjacent"/>
   <disable_collisions link1="lidar_body" link2="right_wheel" reason="Adjacent"/>
   <disable_collisions link1="lidar_body" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="lidar_body" link2="turret_servo" reason="Adjacent"/>
+  <disable_collisions link1="lidar_puck" link2="phone_body" reason="Adjacent"/>
+  <disable_collisions link1="lidar_puck" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="lidar_puck" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="lidar_puck" link2="phone_shelf" reason="Adjacent"/>
   <disable_collisions link1="lidar_puck" link2="right_wheel" reason="Adjacent"/>
   <disable_collisions link1="lidar_puck" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="lidar_puck" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="nozzle" link2="wrist" reason="Adjacent"/>
+  <disable_collisions link1="nozzle" link2="wrist_servos" reason="Adjacent"/>
+  <disable_collisions link1="phone_body" link2="phone_bracket" reason="Adjacent"/>
+  <disable_collisions link1="phone_body" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="phone_body" link2="phone_shelf" reason="Adjacent"/>
+  <disable_collisions link1="phone_body" link2="right_wheel" reason="Adjacent"/>
+  <disable_collisions link1="phone_body" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="phone_body" link2="turret_servo" reason="Adjacent"/>
+  <disable_collisions link1="phone_bracket" link2="phone_cradle" reason="Adjacent"/>
+  <disable_collisions link1="phone_bracket" link2="phone_shelf" reason="Adjacent"/>
+  <disable_collisions link1="phone_bracket" link2="right_wheel" reason="Adjacent"/>
+  <disable_collisions link1="phone_bracket" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="phone_bracket" link2="turret_servo" reason="Adjacent"/>
+  <disable_collisions link1="phone_cradle" link2="phone_shelf" reason="Adjacent"/>
+  <disable_collisions link1="phone_cradle" link2="right_wheel" reason="Adjacent"/>
+  <disable_collisions link1="phone_cradle" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="phone_cradle" link2="turret_servo" reason="Adjacent"/>
+  <disable_collisions link1="phone_shelf" link2="right_wheel" reason="Adjacent"/>
+  <disable_collisions link1="phone_shelf" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="phone_shelf" link2="turret_servo" reason="Adjacent"/>
   <disable_collisions link1="right_wheel" link2="spray_tank" reason="Adjacent"/>
+  <disable_collisions link1="shoulder_servo" link2="turret_servo" reason="Adjacent"/>
+  <disable_collisions link1="shoulder_servo" link2="upper_arm" reason="Adjacent"/>
+  <disable_collisions link1="spray_tank" link2="turret_servo" reason="Adjacent"/>
+  <disable_collisions link1="turret_servo" link2="upper_arm" reason="Adjacent"/>
+  <disable_collisions link1="wrist" link2="wrist_servos" reason="Adjacent"/>
   <!-- END generated -->
 
 </robot>

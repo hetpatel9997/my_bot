@@ -59,6 +59,14 @@
       <material name="servo"/>
     </visual>
   </xacro:macro>
+  <!-- the same servo box as a collision shape: MoveIt only sees parts that have one, and the servo
+       bodies stick out beside the thin arm bars (call it with the same xyz / rpy as servo_visual) -->
+  <xacro:macro name="servo_collision" params="xyz rpy">
+    <collision>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+      <geometry><box size="${servo_x} ${servo_y} ${servo_z}"/></geometry>
+    </collision>
+  </xacro:macro>
 
   <!-- arm link: a bar along +z of length L, with the next servo at its end. scan_w = width (y) of the
        collision box (wider than the bar only where the LD06 sees the arm, see arm_scan_w) -->
@@ -122,6 +130,7 @@
   <joint name="turret_servo_joint" type="fixed"><parent link="arm_turret"/><child link="turret_servo"/><origin xyz="0 0 0"/></joint>
   <link name="turret_servo">
     <xacro:servo_visual xyz="0 0 ${arm_l1-servo_z/2+0.005}" rpy="0 0 0"/>
+    <xacro:servo_collision xyz="0 0 ${arm_l1-servo_z/2+0.005}" rpy="0 0 0"/>
   </link>
 
   <!-- servo 2: shoulder -->
@@ -159,11 +168,14 @@
   </link>
 
   <!-- servo 4 body at the wrist pitch axis and servo 5 (wrist roll) body, shaft along the link at the
-       roll joint (size approximate), visual only -->
+       roll joint (size approximate); each box is also a collision shape (servo 5 is wider than the
+       wrist's own collision box) -->
   <joint name="wrist_servos_joint" type="fixed"><parent link="wrist"/><child link="wrist_servos"/><origin xyz="0 0 0"/></joint>
   <link name="wrist_servos">
     <xacro:servo_visual xyz="0 0 0" rpy="0 0 0"/>
     <visual><origin xyz="0 0 ${arm_roll_d-servo_x/2}"/><geometry><box size="${servo_y} ${servo_z} ${servo_x}"/></geometry><material name="servo"/></visual>
+    <xacro:servo_collision xyz="0 0 0" rpy="0 0 0"/>
+    <collision><origin xyz="0 0 ${arm_roll_d-servo_x/2}"/><geometry><box size="${servo_y} ${servo_z} ${servo_x}"/></geometry></collision>
   </link>
 
   <!-- servo 5: wrist roll, turns the nozzle about the link axis -->
@@ -190,10 +202,18 @@
     <visual><geometry><sphere radius="0.006"/></geometry><material name="petg_orange"/></visual>
   </link>
 
-  <!-- servo bodies at the shoulder and elbow (on the parent link, visual only) -->
+  <!-- servo bodies at the shoulder and elbow (on the parent link), visual + collision. Parked, they
+       stay out of both LD06 scan planes (tank 0.378: elbow servo bottom 0.387; front mount 0.268:
+       shoulder servo bottom 0.297) -->
   <joint name="shoulder_servo_joint" type="fixed"><parent link="upper_arm"/><child link="shoulder_servo"/><origin xyz="0 ${link_w/2+servo_y/2} 0"/></joint>
-  <link name="shoulder_servo"><xacro:servo_visual xyz="0 0 0" rpy="${pi/2} 0 0"/></link>
+  <link name="shoulder_servo">
+    <xacro:servo_visual xyz="0 0 0" rpy="${pi/2} 0 0"/>
+    <xacro:servo_collision xyz="0 0 0" rpy="${pi/2} 0 0"/>
+  </link>
   <joint name="elbow_servo_joint" type="fixed"><parent link="forearm"/><child link="elbow_servo"/><origin xyz="0 ${link_w/2+servo_y/2} 0"/></joint>
-  <link name="elbow_servo"><xacro:servo_visual xyz="0 0 0" rpy="${pi/2} 0 0"/></link>
+  <link name="elbow_servo">
+    <xacro:servo_visual xyz="0 0 0" rpy="${pi/2} 0 0"/>
+    <xacro:servo_collision xyz="0 0 0" rpy="${pi/2} 0 0"/>
+  </link>
 
 </robot>

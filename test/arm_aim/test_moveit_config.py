@@ -80,14 +80,32 @@ def test_joint_limits_all_joints():
 
 
 def test_disable_list_up_to_date():
-    """The SRDF's generated block is exactly what gen_disable_collisions.py makes from the URDF
-    today. If this fails after a URDF change, run:
-      python3 test/arm_aim/gen_disable_collisions.py --write"""
-    expected = gen_disable_collisions.disable_lines(gen_disable_collisions.sim_urdf())
+    """The SRDF's generated block (list of links MoveIt never checks + disabled pairs) is exactly
+    what gen_disable_collisions.py makes from the URDF today. If this fails after a URDF change,
+    run:  python3 test/arm_aim/gen_disable_collisions.py --write"""
+    expected = gen_disable_collisions.block_lines(gen_disable_collisions.sim_urdf())
     with open(SRDF) as f:
         in_srdf = gen_disable_collisions.read_block(f.read())
-    assert expected, 'generator produced no pairs'
+    assert len(expected) > 1, 'generator produced no pairs'
     assert in_srdf == expected
+
+
+# Links allowed to have NO collision shape (MoveIt never checks them), each for a reason given in
+# gen_disable_collisions.py's header: frames, parts inside the body shell's box, the caster bracket
+# behind the tank (out of reach), the spray_tip marker ball.
+NO_COLLISION_OK = {
+    'base_link', 'base_footprint', 'laser_frame', 'phone_mount', 'phone_optical', 'phone_link',
+    'top_cover', 'cheek_1', 'cheek_-1', 'arm_yaw_servo', 'imu_link',
+    'caster_bracket', 'caster_socket', 'spray_tip',
+}
+
+
+def test_only_allowed_links_without_collision():
+    """MoveIt only sees links that have a collision shape. The phone holder and the arm's servo
+    boxes are where the nozzle can reach, so they must have one; a new visual-only link fails here
+    until someone decides whether the arm can reach it."""
+    urdf = gen_disable_collisions.sim_urdf()
+    assert set(gen_disable_collisions.unchecked_links(urdf)) == NO_COLLISION_OK
 
 
 def test_load_keep_box():
