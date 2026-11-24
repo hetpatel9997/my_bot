@@ -85,10 +85,17 @@ weed_aim:
     # MoveIt speed: fraction of the limits in config/moveit/joint_limits.yaml.
     velocity_scaling: 0.5
     acceleration_scaling: 0.5
-    # Arrived = every joint within arrive_tolerance_deg of the goal for arrive_hold s, at most
-    # arrive_timeout s after MoveIt finished; else "did not reach the aim pose" and park.
+    # Arrived = every joint within arrive_tolerance_deg of the goal for arrive_hold s AND the arm
+    # still: every joint moved less than arrive_still_speed (rad/s) x arrive_hold over the last
+    # arrive_hold s (measured like spray_controller's "arm still" check). At most arrive_timeout s
+    # after MoveIt finished; else "did not reach the aim pose" and park.
+    # arrive_still_speed MUST stay below spray_controller's arm_still_speed (0.02, above): it is
+    # half of it on purpose, so the spray controller never sees "arm moving" right after weed_aim
+    # said "arrived" (their windows are a few ms apart). arrive_hold should be >= its
+    # arm_still_time (0.3).
     arrive_tolerance_deg: 1.0
     arrive_hold: 0.3
+    arrive_still_speed: 0.01
     arrive_timeout: 15.0
     planning_time: 5.0            # s, MoveIt planning time limit per move
     # Ground box added to MoveIt's world at start (4 x 4 x 0.1 m, in base_link): its top is this

@@ -11,7 +11,12 @@ Give it a point (a weed on the ground) and it runs one CYCLE:
    4. VALIDATE  MoveIt /check_state_validity, candidate by candidate: the first one that does not
                 hit the robot (or the ground box this node adds to MoveIt's world) wins
    5. MOVE      MoveIt /move_action: plan + execute that joint goal
-   6. ARRIVED?  /joint_states: every arm joint within arrive_tolerance_deg for arrive_hold s
+   6. ARRIVED?  /joint_states: every arm joint within arrive_tolerance_deg for arrive_hold s AND
+                the arm STILL (rule R18): every joint moved at most arrive_still_speed x
+                arrive_hold over the last arrive_hold s, judged like the spray controller judges
+                "arm still" but stricter (0.01 vs its 0.02 rad/s). Without it the spray was asked
+                for while the arm still crept at 0.1-0.2 rad/s inside the last degree, and the
+                spray controller refused "arm moving" (Task 6: 3 of 15 sprays).
    7. MEASURE   aim error = distance from the target to the nozzle's centre line, taken from the
                 spray_tip TF (what the arm really does, not the solver's own numbers)
    8. SPRAY     /spray/trigger, only if parameter `spray` is true. The spray controller makes ALL
@@ -132,7 +137,9 @@ SPRAY_ANSWER_S = 10.0       # longest wait for /spray/trigger (the spray itself 
 GROUND_RETRY_S = 5.0        # ask again if /apply_planning_scene did not answer the ground box
 STOP_TOPIC = '/trajectory_execution_event'  # MoveIt stops the running arm move on "stop"
 STOP_REPEAT_S = 10.0        # after an e-stop, repeat "stop" until the goal ends, at most this long
-JOINTS_MAX_AGE_S = 0.5      # older /joint_states do not count as "arrived"
+# Older /joint_states do not count as "arrived"; a longer gap in them restarts the "still" window
+# (the same 0.5 s as spray_controller's joint_states_timeout).
+JOINTS_MAX_AGE_S = 0.5
 GROUND_SIZE = (4.0, 4.0, 0.1)   # m, the ground box MoveIt keeps the arm out of
 CONE_HALF_ANGLE = math.radians(12.0)    # spray cone drawn in RViz (looks only)
 
@@ -158,7 +165,9 @@ PARAMS = {
                          False),
     'acceleration_scaling': (0.5, 'MoveIt acceleration scaling (0..1)', False),
     'arrive_tolerance_deg': (1.0, 'arrived = every joint this close to the goal (deg) ...', False),
-    'arrive_hold': (0.3, '... for this long (s) ...', False),
+    'arrive_hold': (0.3, '... for this long (s), and the arm still over this long ...', False),
+    'arrive_still_speed': (0.01, '... still = every joint slower than this (rad/s); keep it below '
+                                 'spray_controller arm_still_speed', False),
     'arrive_timeout': (15.0, '... within this long after MoveIt finished (s)', False),
     'planning_time': (5.0, 'MoveIt planning time limit (s)', False),
     'ground_top': (0.02, 'top of the ground box in base_link (m): the arm stays above it', True),
@@ -195,6 +204,40 @@ def clamp_to_limits(goal: Sequence[float], lower: Sequence[float],
     limit; a goal outside the limits, by however little, can be refused by MoveIt or the
     controller, so we never send one."""
     return tuple(float(min(max(v, lo), hi)) for v, lo, hi in zip(goal, lower, upper))
+
+
+def add_joint_sample(hist: list, t: float, positions: Sequence[float], keep: float,
+                     max_gap: float) -> None:
+    """Add one arm sample (time s, positions in JOINT_NAMES order) to `hist`, for settled().
+
+    A gap longer than max_gap empties `hist` first: we do not know what the arm did in it, so
+    the "still" window starts again. Only what a window of `keep` s needs is kept: the newest
+    sample at or before t - keep, and everything after it.
+    """
+    if hist and t - hist[-1][0] > max_gap:
+        hist.clear()
+    hist.append((t, tuple(float(v) for v in positions)))
+    while len(hist) >= 2 and hist[1][0] <= t - keep:
+        hist.pop(0)
+
+
+def settled(hist: Sequence, now: float, window: float, max_speed: float) -> bool:
+    """True if the arm was still for the last `window` s: every joint's position spread over
+    the samples covering [now - window, now] is at most max_speed x window. Same way of
+    measuring as spray_controller's "arm still" check (positions, not the velocity field: a
+    servo driver may not report velocity). Not enough history to cover the window, or a NaN
+    position, = not still."""
+    start = now - window
+    first = None
+    for i, (t, _) in enumerate(hist):
+        if t <= start:
+            first = i
+    if first is None:
+        return False
+    pos = np.array([p for _, p in hist[first:]], dtype=float)
+    spread = pos.max(axis=0) - pos.min(axis=0)
+    # `<=` is False for NaN, so a NaN position counts as moving
+    return bool(np.all(spread <= max_speed * window))
 
 
 def error_name(val) -> str:
@@ -266,6 +309,9 @@ class WeedAim(Node):
         self._geom = None            # ArmGeometry, from /robot_description
         self._joints = {}            # latest arm joint positions (rad)
         self._joints_time = None     # node-clock time of the latest arm joint state
+        # [(steady time, 5 positions)] for settled(): steady wall time like spray_controller,
+        # so both nodes look at the same window (the sim clock only ticks every 0.1 s)
+        self._joint_hist = []
         self._e_stop = False         # /e_stop right now
         self._e_stop_seen = False    # /e_stop went true since this cycle / park started
         self._relay = False          # /spray/relay: only for the spray cone marker
@@ -408,6 +454,12 @@ class WeedAim(Node):
                 seen = True
         if seen:
             self._joints_time = self._now()
+        pos = dict(zip(msg.name, msg.position))
+        if all(n in pos for n in JOINT_NAMES):      # a full arm sample (not wheels only)
+            # at least 1 s, so a changed arrive_hold still finds its whole window
+            keep = max(float(self.get_parameter('arrive_hold').value), 1.0)
+            add_joint_sample(self._joint_hist, time.monotonic(),
+                             [pos[n] for n in JOINT_NAMES], keep, JOINTS_MAX_AGE_S)
 
     def _on_e_stop(self, msg):
         on = bool(msg.data)
@@ -736,8 +788,11 @@ class WeedAim(Node):
 
     async def _arrive(self, joints, p) -> bool:
         """True once /joint_states shows every joint within arrive_tolerance_deg of `joints`
-        without a break for arrive_hold s; False after arrive_timeout. Raises _EStop."""
+        without a break for arrive_hold s AND the arm still (settled(): every joint slower than
+        arrive_still_speed over the last arrive_hold s, rule R18); False after arrive_timeout.
+        Raises _EStop."""
         tol = math.radians(p['arrive_tolerance_deg'])
+        hold, still = p['arrive_hold'], p['arrive_still_speed']
         end = self._now() + p['arrive_timeout']
         since = None
         while True:
@@ -746,7 +801,8 @@ class WeedAim(Node):
             now = self._now()
             if self._fresh_joints() and reached(self._joints, joints, tol):
                 since = now if since is None else since
-                if now - since >= p['arrive_hold']:
+                if (now - since >= hold
+                        and settled(self._joint_hist, time.monotonic(), hold, still)):
                     return True
             else:
                 since = None
