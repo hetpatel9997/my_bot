@@ -1,4 +1,4 @@
-"""arm_aim.launch.py - MoveIt 2 for the spray arm (and, in later steps, the aim + spray nodes).
+"""arm_aim.launch.py - MoveIt 2 for the spray arm, the aim node and the spray controller.
 
   ros2 launch my_bot arm_aim.launch.py                  # with the Gazebo sim (use_sim_time true)
   ros2 launch my_bot arm_aim.launch.py rviz:=true       # + RViz with MoveIt's MotionPlanning panel
@@ -14,8 +14,19 @@ What it starts, and why:
     in config/moveit/ (SRDF = arm group, park pose, collision pairs; IK; speed limits; controller).
     Planning uses OMPL with moveit_configs_utils' default settings (there is no
     config/ompl_planning.yaml on purpose).
-  - RViz (only with rviz:=true): config/arm_aim.rviz, fixed frame base_link, robot model and the
-    MotionPlanning panel for group "arm". It gets the same MoveIt parameters as move_group.
+  - weed_aim (scripts/weed_aim_node.py, section weed_aim of config/arm_aim.yaml): give it a point
+    on /aim_target or /clicked_point and it aims the nozzle at it, asks for a spray, parks the arm
+    and reports on /aim/result. It gets the installed safety.yaml (LiDAR keep-clear box) and SRDF
+    (park pose), and use_sim_time from the launch argument.
+  - spray_controller (scripts/spray_controller_node.py, section spray_controller): the ONLY node
+    that switches the spray relay. It always runs on wall time, so it gets use_sim_time false
+    explicitly and never the launch argument (it refuses to start with sim time; that is also why
+    there is no launch-wide SetParameter(use_sim_time) here). backend comes from the yaml (sim).
+    start_armed is true ONLY when use_sim_time is true, i.e. in Gazebo, where the "relay" is just
+    a ROS message (no pump). On the robot it starts disarmed and the owner arms it on purpose.
+  - RViz (only with rviz:=true): config/arm_aim.rviz, fixed frame base_link, robot model, the
+    MotionPlanning panel for group "arm" and the aim markers (/aim/markers: target, nozzle line,
+    spray cone while the relay is on). It gets the same MoveIt parameters as move_group.
 Needs the sim (launch_sim.launch.py) or, later, the robot with an arm driver already running:
 move_group reads the arm angles from /joint_states and TF from robot_state_publisher.
 """
@@ -65,10 +76,24 @@ def _arm_aim(context):
         params[key] = ParameterValue(params[key], value_type=str)
     params['use_sim_time'] = _is_true(use_sim_time)
 
-    nodes = [Node(package='moveit_ros_move_group', executable='move_group',
-                  output='screen', parameters=[params])]
+    share = get_package_share_directory('my_bot')
+    arm_aim_yaml = os.path.join(share, 'config', 'arm_aim.yaml')
+    nodes = [
+        Node(package='moveit_ros_move_group', executable='move_group',
+             output='screen', parameters=[params]),
+        Node(package='my_bot', executable='weed_aim_node.py', name='weed_aim', output='screen',
+             parameters=[arm_aim_yaml, {
+                 'use_sim_time': _is_true(use_sim_time),
+                 'safety_yaml': os.path.join(share, 'config', 'safety.yaml'),
+                 'srdf_path': os.path.join(share, 'config', 'moveit', 'weedbot.srdf')}]),
+        # NO use_sim_time from the launch argument here (see the docstring): wall time always.
+        Node(package='my_bot', executable='spray_controller_node.py', name='spray_controller',
+             output='screen', parameters=[arm_aim_yaml, {
+                 'use_sim_time': False,
+                 'start_armed': _is_true(use_sim_time)}]),
+    ]
     if _is_true(LaunchConfiguration('rviz').perform(context)):
-        rviz_config = os.path.join(get_package_share_directory('my_bot'), 'config', 'arm_aim.rviz')
+        rviz_config = os.path.join(share, 'config', 'arm_aim.rviz')
         nodes.append(Node(package='rviz2', executable='rviz2', name='rviz2_arm_aim',
                           output='log', arguments=['-d', rviz_config], parameters=[params]))
     return nodes

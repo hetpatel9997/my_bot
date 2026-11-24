@@ -1,7 +1,9 @@
 # RViz for the spray arm (launch/arm_aim.launch.py rviz:=true). Fixed frame base_link (robot
 # centre on the ground), grid cells 0.1 m. RobotModel = the robot as it is now (TF);
 # MotionPlanning = MoveIt's panel for group "arm": drag the orange goal arm or pick "park" as the
-# goal state, then Plan / Execute. Publish Point (toolbar) sends /clicked_point.
+# goal state, then Plan / Execute. Publish Point (toolbar) sends /clicked_point: click the ground
+# and weed_aim aims at that point. AimMarkers = /aim/markers from weed_aim: yellow ball = the
+# target, blue line = the nozzle's centre line, light-blue cone = spray (only while the relay is on).
 Panels:
 - Class: rviz_common/Displays
   Help Height: 78
@@ -61,6 +63,18 @@ Visualization Manager:
     Update Interval: 0
     Value: true
     Visual Enabled: true
+  - Class: rviz_default_plugins/MarkerArray
+    Enabled: true
+    Name: AimMarkers
+    Namespaces:
+      {}
+    Topic:
+      Depth: 5
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /aim/markers
+    Value: true
   - Acceleration_Scaling_Factor: 0.5
     Class: moveit_rviz_plugin/MotionPlanning
     Enabled: true

@@ -1,4 +1,5 @@
-# Arm aim + spray (sub-project 1, simulation). One section per node.
+# Arm aim + spray (sub-project 1, simulation). One section per node (spray_controller, weed_aim);
+# launch/arm_aim.launch.py starts both.
 #   ros2 run my_bot spray_controller_node.py --ros-args --params-file config/arm_aim.yaml
 # Only spray_seconds and zones_file can be changed while the node runs (ros2 param set); every
 # other spray_controller parameter is fixed at start (read-only: a change is refused loudly).
@@ -54,3 +55,42 @@ spray_controller:
     gpio_chip: 0
     gpio_pin: -1
     active_low: false
+
+weed_aim:
+  ros__parameters:
+    # One aim -> spray -> park cycle per target on /aim_target or /clicked_point; report on
+    # /aim/result. use_sim_time comes from the launch file (true in Gazebo).
+    # Frames, files, keep_clear_shrink and ground_top are fixed at start (read-only); all
+    # others are read again at the start of every cycle, so `ros2 param set` works for them.
+    base_frame: base_link         # z = 0 is the ground; targets are converted to this frame
+    arm_base_frame: arm_base      # the aim solver works in this frame
+    laser_frame: laser_frame      # its height = the LiDAR scan plane the arm must keep out of
+    nozzle_frame: spray_tip       # +z = spray direction: aim error and RViz nozzle line
+    # '' = use the installed my_bot files; arm_aim.launch.py passes them explicitly.
+    safety_yaml: ''               # config/safety.yaml: scan_self_filter box (LiDAR keep-clear)
+    srdf_path: ''                 # config/moveit/weedbot.srdf: the park pose
+    # The arm may cross the scan plane only inside the self-filter box made this much smaller on
+    # every side (m), and "in the scan plane" means within +- scan_band (m) of its height.
+    keep_clear_shrink: 0.02
+    scan_band: 0.03
+    # Aim choices tried by the solver: nozzle tilt from straight down up to tilt_max_deg, tip
+    # standoff_min..standoff_max (m) from the weed, tip at least tip_clearance (m) above it.
+    tilt_max_deg: 50.0
+    standoff_min: 0.08
+    standoff_max: 0.25
+    tip_clearance: 0.03
+    # Ask the spray controller to spray after aiming (false = aim, measure, park only). The spray
+    # controller still makes every safety decision itself.
+    spray: true
+    # MoveIt speed: fraction of the limits in config/moveit/joint_limits.yaml.
+    velocity_scaling: 0.5
+    acceleration_scaling: 0.5
+    # Arrived = every joint within arrive_tolerance_deg of the goal for arrive_hold s, at most
+    # arrive_timeout s after MoveIt finished; else "did not reach the aim pose" and park.
+    arrive_tolerance_deg: 1.0
+    arrive_hold: 0.3
+    arrive_timeout: 15.0
+    planning_time: 5.0            # s, MoveIt planning time limit per move
+    # Ground box added to MoveIt's world at start (4 x 4 x 0.1 m, in base_link): its top is this
+    # high (m), so MoveIt keeps every arm part at least that far above the ground.
+    ground_top: 0.02
