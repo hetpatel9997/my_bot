@@ -1,0 +1,16 @@
+<?xml version="1.0" ?>
+<!-- arm_test.world: empty world for the arm aim / spray tests (test/arm_aim). Only ground and
+     sun, so the LiDAR sees nothing but the robot itself and the safety chain has no reason to
+     stop or slow anything. The gazebo_ros_state plugin lets scripts/sim_person.py put a "person"
+     in front of the robot when a test needs one. -->
+<sdf version="1.6">
+  <world name="arm_test">
+    <include><uri>model://ground_plane</uri></include>
+    <include><uri>model://sun</uri></include>
+    <!-- /gazebo/set_entity_state etc.: lets scripts/sim_person.py move a "person" around -->
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros><namespace>/gazebo</namespace></ros>
+      <update_rate>20.0</update_rate>
+    </plugin>
+  </world>
+</sdf>

@@ -3,7 +3,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
@@ -50,6 +51,17 @@ def generate_launch_description():
         arguments=["joint_broad"]
     )
 
+    # Arm (sim only): arm_controller (config/arm_controllers_sim.yaml) moves the five arm joints;
+    # the robot has no arm driver yet. Started once the joint_broad spawner is done, so the
+    # controller manager is surely up and the arm joint states are already being published.
+    arm_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["arm_controller"]
+    )
+    arm_after_joint_broad = RegisterEventHandler(
+        OnProcessExit(target_action=joint_broad_spawner, on_exit=[arm_spawner]))
+
 
     # Same odometry pipeline as the real robot: robot_localization EKF fuses /diff_cont/odom with
     # /imu/data_raw (here from Gazebo's IMU plugin, description/imu_sim.xacro) and publishes /odom
@@ -75,10 +87,14 @@ def generate_launch_description():
                 )]), launch_arguments={'use_sim_time': 'true'}.items()
     )
 
-    # Arm (and caster) joints have no driver yet: fixed /joint_states so TF for spray_tip exists
+    # In sim the arm joint states now come from Gazebo (joint_broad), so the stub must NOT publish
+    # the arm joints too (two sources would fight over the arm's TF). It keeps only the real
+    # robot's caster joints, as on the robot; Gazebo's caster is a fixed ball, so
+    # robot_state_publisher ignores those two names here. launch_robot keeps the full list.
     arm_stub = Node(package=package_name, executable='arm_joint_state_stub.py', name='arm_joint_state_stub',
                     output='screen',
                     parameters=[os.path.join(get_package_share_directory(package_name), 'config', 'arm_joint_state_stub.yaml'),
+                                {'joints': ['caster_swivel_joint', 'caster_wheel_joint'], 'positions': [0.0, 0.0]},
                                 {'use_sim_time': True}])
 
     # Launch them all!
@@ -96,6 +112,7 @@ def generate_launch_description():
         spawn_entity,
         diff_drive_spawner,
         joint_broad_spawner,
+        arm_after_joint_broad,
         imu_ekf,
         twist_mux,
         safety,

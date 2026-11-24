@@ -18,18 +18,26 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- Gazebo has no servos for the arm yet: with revolute joints the arm collapsed under gravity
-       (forearm hanging through the LiDAR scan plane) while TF still showed it straight up. In sim
-       the five joints are FIXED in the parked pose (arm_park_*, the joint origins carry the angles;
-       = what arm_joint_state_stub.py reports on the robot); on the robot they are servo joints at 0
-       in the origins. Give them a simulated position controller before moving the arm in sim. -->
+  <!-- Sim and robot now use the same arm joints, revolute with 0 in the origins (0 = straight up).
+       In Gazebo the joints are moved like servos by ros2_control (ros2_control.xacro sim block,
+       position command, starting at the parked angles arm_park_*) and arm_controller
+       (config/arm_controllers_sim.yaml). Until 2026-11-23 they were FIXED in the parked pose in sim,
+       because free revolute joints let the arm collapse under gravity through the LiDAR plane.
+       Gravity is switched off for the moving arm links in Gazebo only (below), so that only the
+       position commands (ros2_control, 10 Hz) decide where the arm is and gravity cannot pull it
+       down between them; a real servo holds stiffly, so a weightless held arm acts like the real one. -->
   <xacro:if value="$(arg sim_mode)">
-    <xacro:property name="arm_joint_type" value="fixed"/>
-    <xacro:property name="q_yaw" value="${arm_park_yaw}"/>
-    <xacro:property name="q_shoulder" value="${arm_park_shoulder}"/>
-    <xacro:property name="q_elbow" value="${arm_park_elbow}"/>
-    <xacro:property name="q_wrist" value="${arm_park_wrist}"/>
-    <xacro:property name="q_roll" value="${arm_park_roll}"/>
+    <xacro:property name="arm_joint_type" value="revolute"/>
+    <xacro:property name="q_yaw" value="0"/>
+    <xacro:property name="q_shoulder" value="0"/>
+    <xacro:property name="q_elbow" value="0"/>
+    <xacro:property name="q_wrist" value="0"/>
+    <xacro:property name="q_roll" value="0"/>
+    <gazebo reference="arm_turret"><gravity>false</gravity></gazebo>
+    <gazebo reference="upper_arm"><gravity>false</gravity></gazebo>
+    <gazebo reference="forearm"><gravity>false</gravity></gazebo>
+    <gazebo reference="wrist"><gravity>false</gravity></gazebo>
+    <gazebo reference="nozzle"><gravity>false</gravity></gazebo>
   </xacro:if>
   <xacro:unless value="$(arg sim_mode)">
     <xacro:property name="arm_joint_type" value="revolute"/>

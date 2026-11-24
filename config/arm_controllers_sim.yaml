@@ -1,0 +1,38 @@
+# SIMULATION ONLY. Arm controller for Gazebo, loaded as an extra parameter file by the
+# gazebo_ros2_control plugin (description/ros2_control.xacro) next to my_controllers.yaml, which is
+# shared with the real robot and stays unchanged (also its 10 Hz controller-manager update rate).
+# The real robot has no arm driver yet, so this file is never used there.
+#
+# arm_controller is a JointTrajectoryController: it takes a timed list of arm poses (from MoveIt,
+# or a test via the action /arm_controller/follow_joint_trajectory) and at every update sends the
+# five joints the angle they should have at that moment (position commands; Gazebo moves the joint
+# there, like a servo).
+controller_manager:
+  ros__parameters:
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+arm_controller:
+  ros__parameters:
+    # same order everywhere in the arm code
+    joints:
+      - arm_base_yaw
+      - shoulder_pitch
+      - elbow_pitch
+      - wrist_pitch
+      - wrist_roll
+    command_interfaces: [position]
+    state_interfaces: [position, velocity]
+    # a goal must name all five joints (no half-specified arm poses)
+    allow_partial_joints_goal: false
+    constraints:
+      # the arm counts as stopped below 0.05 rad/s at the end of a move
+      stopped_velocity_tolerance: 0.05
+      # after the planned end time the arm gets 2 s more to reach the goal, then the move fails
+      goal_time: 2.0
+      # each joint must end within 0.02 rad (about 1 deg) of the goal
+      arm_base_yaw: {goal: 0.02}
+      shoulder_pitch: {goal: 0.02}
+      elbow_pitch: {goal: 0.02}
+      wrist_pitch: {goal: 0.02}
+      wrist_roll: {goal: 0.02}
