@@ -25,6 +25,15 @@ Both notebooks are in this folder (also copied to the VM Desktop, `WeedBot_train
 5. When it prints `ALL DONE`, open Google Drive -> `weedbot` -> download `weed_detector_v1.zip`
    (in Chrome on the VM it lands in `~/Downloads`). Tell Claude.
 
+**Step 2b - only if step 2 stopped near the end and Colab says "Cannot connect to GPU backend"
+(`02b_finish_without_gpu.ipynb`)**
+1. File -> Upload notebook -> pick `02b_finish_without_gpu.ipynb`.
+2. Runtime -> Change runtime type -> **CPU** -> Save.
+3. Runtime -> **Run all**, allow Drive access. About 30-60 minutes; it does not train, it takes the best model
+   step 2 already saved, tests it and makes the Pi versions. The saved training run is not changed, so step 2
+   can still finish the last rounds later when a GPU is free (that writes a new zip).
+4. When it prints `ALL DONE`, download `weed_detector_v1.zip` as in step 2 and tell Claude.
+
 ## What gets made
 - Dataset (~11,000 images, long side 1024 px): CottonWeedDet12 (12 US weed species incl. spotted spurge and
   purslane; goosegrass removed; split by photo session) -> weed; Roboflow-100 grass-weeds (dock in grass) ->
@@ -39,9 +48,11 @@ Both notebooks are in this folder (also copied to the VM Desktop, `WeedBot_train
 
 ## For developers (VM)
 - Code: `sources.py` (per-source converters), `build.py` (resize + labels + manifest, resumable),
-  `colab.py` (Drive parts, merge, downloads), `train.py` (train / resume / per-source eval / export).
-- After any change: `python3 training/weed_detector/make_notebooks.py` (regenerates both notebooks).
+  `colab.py` (Drive parts, merge, downloads), `train.py` (train / resume / per-source eval / export /
+  `final_weights` for a stopped run).
+- After any change: `python3 training/weed_detector/make_notebooks.py` (regenerates the three notebooks).
 - Tests: `python3 -m pytest test/weed_detector -q`. End-to-end check on the VM (internet, CPU):
-  `env -u PYTHONPATH ~/weedbot_data/venv_yolo/bin/python test/weed_detector/dryrun_notebooks.py`.
+  `env -u PYTHONPATH ~/weedbot_data/venv_yolo/bin/python test/weed_detector/dryrun_notebooks.py [1 2 2b]`
+  (2b fakes a run stopped after round 2 of 3 and finishes it with the step 2b notebook).
 - The training venv `~/weedbot_data/venv_yolo` (torch CPU, ultralytics, fiftyone) is outside ROS on purpose;
   run it with `env -u PYTHONPATH` so ROS packages do not mix in.

@@ -47,6 +47,34 @@ def train(data_yaml, project_dir, name='v1', base='yolo11n.pt', **overrides):
     return best
 
 
+def final_weights(project_dir, name='v1', dest_dir='/content/final'):
+    """For a run that Colab stopped near its end (GPU limit): copy <run>/weights/best.pt to <dest_dir>/best.pt
+    and strip the optimizer from the COPY only, so it can be evaluated and exported without a GPU while the
+    run itself stays resumable. Returns (path, {'best_epoch', 'last_epoch', 'epochs'}); epochs count from 1,
+    best_epoch is None for a run that already finished."""
+    import shutil
+    import torch
+    from ultralytics.utils.torch_utils import strip_optimizer
+    wdir = run_dir(project_dir, name) / 'weights'
+    src, last = wdir / 'best.pt', wdir / 'last.pt'
+    if not src.exists():
+        raise FileNotFoundError(f'{src} not found: step 2 has not saved a model yet')
+    ck = torch.load(str(src), map_location='cpu', weights_only=False)
+    epochs = int((ck.get('train_args') or {}).get('epochs', 0))
+    best_epoch = ck['epoch'] + 1 if ck.get('epoch', -1) >= 0 else None
+    last_epoch = epochs
+    if last.exists():
+        lk = torch.load(str(last), map_location='cpu', weights_only=False)
+        if lk.get('epoch', -1) >= 0:
+            last_epoch = lk['epoch'] + 1
+    dest = Path(dest_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    out = dest / 'best.pt'
+    shutil.copy(src, out)
+    strip_optimizer(str(out))
+    return out, {'best_epoch': best_epoch, 'last_epoch': last_epoch, 'epochs': epochs}
+
+
 def _source_lists(data_dir, split):
     """{source: [image paths]} for one split, from the `<source>__` file-name prefix."""
     out = {}

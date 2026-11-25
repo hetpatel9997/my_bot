@@ -311,3 +311,26 @@ def test_repair_after_merge_resplits_cottonweed_and_drops_weed_tagged(tmp_path):
     rows = list(csv.DictReader(open(ds / 'manifest_openimages.csv')))
     assert [r['file'] for r in rows] == ['train/images/openimages__bbb.jpg']
     assert C.repair_after_merge(str(ds), weed_ids={'aaa'}) == {'cottonweed_moved': 0, 'openimages_removed': 0}
+
+
+def test_final_weights_strips_a_copy_and_leaves_the_run_resumable(tmp_path):
+    torch = pytest.importorskip('torch')
+    pytest.importorskip('ultralytics')
+    from ultralytics.nn.tasks import DetectionModel
+    from weed_detector import train as T
+    w = tmp_path / 'runs' / 'v1' / 'weights'
+    w.mkdir(parents=True)
+    ema = DetectionModel('yolo11n.yaml', nc=2, verbose=False).half()
+    torch.save({'epoch': 40, 'best_fitness': 0.5, 'model': None, 'ema': ema, 'updates': 9,
+                'optimizer': {'state': {}}, 'train_args': {'epochs': 100}}, w / 'best.pt')
+    torch.save({'epoch': 96, 'best_fitness': 0.5, 'model': None, 'ema': ema, 'updates': 9,
+                'optimizer': {'state': {}}, 'train_args': {'epochs': 100}}, w / 'last.pt')
+    before = (w / 'best.pt').read_bytes()
+    out, info = T.final_weights(tmp_path / 'runs', 'v1', tmp_path / 'final')
+    assert info == {'best_epoch': 41, 'last_epoch': 97, 'epochs': 100}
+    assert (w / 'best.pt').read_bytes() == before            # the run on Drive is untouched
+    assert not T.run_finished(w / 'last.pt')                # ... and still resumes with a GPU later
+    assert T.run_finished(out)                               # the copy is a finished, optimizer-free model
+    assert out == tmp_path / 'final' / 'best.pt'
+    with pytest.raises(FileNotFoundError):
+        T.final_weights(tmp_path / 'nothing', 'v1', tmp_path / 'final2')

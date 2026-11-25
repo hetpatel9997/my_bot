@@ -78,6 +78,61 @@ print(f'DONE: all {len(done)} parts are on Drive, go to step 2' if len(done) == 
 '''),
 ]
 
+MERGE = '''
+from weed_detector import colab as C, train as T
+DS = '/content/weeds_ds'
+info = C.merge_parts(DRIVE, DS)        # only cottonweed, grassweeds, openimages (an old cropsweeds part is ignored)
+print('repair of parts from an older step 1:', C.repair_after_merge(DS))   # no-op for current parts
+info = C.summary(DS)
+print(info)
+'''
+
+EVALUATE = '''
+import json
+per_source = T.evaluate_per_source(best, DS, split='test', imgsz=640)
+overall = T.evaluate_all(best, DS + '/data.yaml', DRIVE + '/runs/v1', split='test', imgsz=640)
+print(json.dumps({'overall_test': overall, 'per_source_test': per_source}, indent=1))
+json.dump({'overall_test': overall, 'per_source_test': per_source, 'dataset': info},
+          open(DRIVE + '/runs/v1/metrics_per_source.json', 'w'), indent=1)
+'''
+
+
+def package(weights_dir, note):
+    """The export + zip cell. `weights_dir`: Python expression for the folder holding best.pt (exports land
+    next to it); `note`: Python expression for an extra README line."""
+    return code('''
+import glob, shutil
+exported = T.export(best, imgsz=640, formats=('onnx', 'ncnn'))
+print('exported:', exported)
+out = '/content/weed_detector_v1'
+os.makedirs(out, exist_ok=True)
+run = DRIVE + '/runs/v1'
+W = WEIGHTS_DIR
+for f in ['results.csv', 'confusion_matrix.png', 'results.png', 'metrics_per_source.json', 'args.yaml']:
+    if os.path.exists(os.path.join(run, f)):
+        shutil.copy(os.path.join(run, f), out)
+for f in ['best.pt', 'best.onnx']:
+    if os.path.exists(os.path.join(W, f)):
+        shutil.copy(os.path.join(W, f), out)
+if os.path.exists(os.path.join(run, 'test_eval', 'confusion_matrix.png')):
+    shutil.copy(os.path.join(run, 'test_eval', 'confusion_matrix.png'), os.path.join(out, 'test_confusion_matrix.png'))
+ncnn = os.path.join(W, 'best_ncnn_model')
+if os.path.isdir(ncnn):
+    shutil.copytree(ncnn, os.path.join(out, 'best_ncnn_model'), dirs_exist_ok=True)
+for src in sorted(glob.glob(DS + '/manifest_*.csv')):
+    shutil.copy(src, out)
+open(os.path.join(out, 'README.txt'), 'w').write(
+    'WeedBot weed/keep detector v1 (YOLO11n, classes 0 weed, 1 keep, imgsz 640).\\n' + NOTE +
+    'Trained on: CottonWeedDet12 (CC BY-NC 4.0, Lu et al., Zenodo 10.5281/zenodo.7535814), Roboflow-100 grass-weeds '
+    '(CC BY 4.0), Open Images V7 (CC BY 2.0 images, CC BY 4.0 boxes).\\n'
+    'Non-commercial use (CottonWeedDet12 licence).\\n')
+shutil.make_archive(DRIVE + '/weed_detector_v1', 'zip', out)
+size = round(os.path.getsize(DRIVE + '/weed_detector_v1.zip') / 1e6, 1)
+from google.colab import drive
+drive.flush_and_unmount()          # make sure the zip is really written to Google Drive
+print('ALL DONE -> MyDrive/weedbot/weed_detector_v1.zip', size, 'MB')
+'''.replace('WEIGHTS_DIR', weights_dir).replace('NOTE', note))
+
 NB2 = [
     md('''
 # WeedBot weed detector - step 2 of 2: train
@@ -97,60 +152,47 @@ print('GPU:', torch.cuda.get_device_name(0))
 '''),
 ] + module_cells() + [
     code('!pip -q install ultralytics'),
-    code('''
-from weed_detector import colab as C, train as T
-DS = '/content/weeds_ds'
-info = C.merge_parts(DRIVE, DS)        # only cottonweed, grassweeds, openimages (an old cropsweeds part is ignored)
-print('repair of parts from an older step 1:', C.repair_after_merge(DS))   # no-op for current parts
-info = C.summary(DS)
-print(info)
-'''),
+    code(MERGE),
     code('''
 best = T.train(DS + '/data.yaml', DRIVE + '/runs', name='v1', epochs=100, imgsz=640)
 print('best model:', best)
 '''),
-    code('''
-import json
-per_source = T.evaluate_per_source(best, DS, split='test', imgsz=640)
-overall = T.evaluate_all(best, DS + '/data.yaml', DRIVE + '/runs/v1', split='test', imgsz=640)
-print(json.dumps({'overall_test': overall, 'per_source_test': per_source}, indent=1))
-json.dump({'overall_test': overall, 'per_source_test': per_source, 'dataset': info},
-          open(DRIVE + '/runs/v1/metrics_per_source.json', 'w'), indent=1)
-'''),
-    code('''
-import glob, shutil
-exported = T.export(best, imgsz=640, formats=('onnx', 'ncnn'))
-print('exported:', exported)
-out = '/content/weed_detector_v1'
-os.makedirs(out, exist_ok=True)
-run = DRIVE + '/runs/v1'
-for f in ['weights/best.pt', 'weights/best.onnx', 'results.csv', 'confusion_matrix.png', 'results.png',
-          'metrics_per_source.json', 'args.yaml']:
-    if os.path.exists(os.path.join(run, f)):
-        shutil.copy(os.path.join(run, f), out)
-if os.path.exists(os.path.join(run, 'test_eval', 'confusion_matrix.png')):
-    shutil.copy(os.path.join(run, 'test_eval', 'confusion_matrix.png'), os.path.join(out, 'test_confusion_matrix.png'))
-ncnn = os.path.join(run, 'weights', 'best_ncnn_model')
-if os.path.isdir(ncnn):
-    shutil.copytree(ncnn, os.path.join(out, 'best_ncnn_model'), dirs_exist_ok=True)
-for src in sorted(glob.glob(DS + '/manifest_*.csv')):
-    shutil.copy(src, out)
-open(os.path.join(out, 'README.txt'), 'w').write(
-    'WeedBot weed/keep detector v1 (YOLO11n, classes 0 weed, 1 keep, imgsz 640).\\n'
-    'Trained on: CottonWeedDet12 (CC BY-NC 4.0, Lu et al., Zenodo 10.5281/zenodo.7535814), Roboflow-100 grass-weeds '
-    '(CC BY 4.0), Open Images V7 (CC BY 2.0 images, CC BY 4.0 boxes).\\n'
-    'Non-commercial use (CottonWeedDet12 licence).\\n')
-shutil.make_archive(DRIVE + '/weed_detector_v1', 'zip', out)
-size = round(os.path.getsize(DRIVE + '/weed_detector_v1.zip') / 1e6, 1)
-from google.colab import drive
-drive.flush_and_unmount()          # make sure the zip is really written to Google Drive
-print('ALL DONE -> MyDrive/weedbot/weed_detector_v1.zip', size, 'MB')
-'''),
+    code(EVALUATE),
+    package("run + '/weights'", "''"),
 ]
+
+NB2B = [
+    md('''
+# WeedBot weed detector - step 2b: finish WITHOUT a GPU
+Use this only when step 2 stopped near the end (for example round 97 of 100) and Colab says
+"Cannot connect to GPU backend". It takes the best model step 2 already saved on your Drive, tests it,
+makes the Pi versions and writes `MyDrive/weedbot/weed_detector_v1.zip`, all on a normal CPU.
+It does not train and does not change the saved training run: step 2 can still finish it later with a GPU.
+
+**How:** Runtime -> Change runtime type -> **CPU** -> Save, then Runtime -> **Run all**. Allow Google Drive
+access. Takes about 30-60 minutes; keep the laptop awake. When it prints **ALL DONE**, download
+`weed_detector_v1.zip` from Drive (MyDrive/weedbot) and tell Claude.
+'''),
+    code(MOUNT + '''
+assert os.path.exists(DRIVE + '/runs/v1/weights/best.pt'), 'No saved model yet: run step 2 (02_train) first'
+'''),
+] + module_cells() + [
+    code('!pip -q install ultralytics'),
+    code(MERGE),
+    code('''
+best, stop = T.final_weights(DRIVE + '/runs', 'v1', '/content/final')
+print(f"training stopped after round {stop['last_epoch']} of {stop['epochs']}; best model is from round {stop['best_epoch']}")
+'''),
+    code(EVALUATE),
+    package("'/content/final'",
+            "f\"Training stopped after round {stop['last_epoch']} of {stop['epochs']} (Colab GPU limit); \"\n    "
+            "f\"best.pt is the best round so far ({stop['best_epoch']}).\\n\""),
+]
+
 
 def write(cells, name):
     nb = {'cells': cells, 'metadata': {'colab': {'provenance': []}, 'kernelspec': {'display_name': 'Python 3', 'name': 'python3'},
-                                       'language_info': {'name': 'python'}, 'accelerator': 'GPU' if '02' in name else 'None'},
+                                       'language_info': {'name': 'python'}, 'accelerator': 'GPU' if name == '02_train.ipynb' else 'None'},
           'nbformat': 4, 'nbformat_minor': 0}
     path = os.path.join(HERE, name)
     with open(path, 'w') as f:
@@ -161,3 +203,4 @@ def write(cells, name):
 if __name__ == '__main__':
     print(write(NB1, '01_build_dataset.ipynb'))
     print(write(NB2, '02_train.ipynb'))
+    print(write(NB2B, '02b_finish_without_gpu.ipynb'))
