@@ -7,7 +7,10 @@ session only redoes the unfinished source);  runs/v1/   training checkpoints;  w
 import collections
 import glob
 import os
+import json
 import shutil
+import time
+import urllib.parse
 import zipfile
 
 from . import build as B
@@ -182,3 +185,69 @@ def openimages_items_from_zoo(tmp_dir, max_images=3000, max_samples_per_split=60
         if len(items) >= max_images:
             break
     return items
+
+
+# ---- v2 sources: iNaturalist photos and Open Images background photos ----
+
+INAT_API = 'https://api.inaturalist.org/v1/observations'
+INAT_PER_PAGE = 200
+
+
+def _inat_get_json(url, retries=8, sleep=time.sleep):
+    """JSON of an iNaturalist API call; same retry rules as build.fetch."""
+    return json.loads(B.fetch(url, retries=retries, sleep=sleep).decode('utf-8'))
+
+
+def inat_observations(taxon_id, n, quality_grade='research', captive=None, get_json=None, sleep=time.sleep):
+    """Up to n observations of a taxon whose first photo has an allowed licence (S.inat_item is not None).
+    Pages by id (id_above) so a long walk never repeats; at most 1 request per second; stops at n, on an
+    empty page, or when the API says nothing is left (total_results), so a taxon with few photos ends."""
+    get_json = get_json or _inat_get_json
+    base = {'taxon_id': taxon_id, 'photo_license': ','.join(S.INAT_LICENCES), 'per_page': INAT_PER_PAGE,
+            'order_by': 'id', 'order': 'asc'}
+    if quality_grade:
+        base['quality_grade'] = quality_grade
+    if captive is not None:
+        base['captive'] = 'true' if captive else 'false'
+    out, id_above, first = [], None, True
+    while len(out) < n:
+        params = dict(base)
+        if id_above is not None:
+            params['id_above'] = id_above
+        if not first:
+            sleep(1.0)
+        first = False
+        page = get_json(INAT_API + '?' + urllib.parse.urlencode(params, safe=','))
+        results = page.get('results') or []
+        if not results:
+            break
+        out += [o for o in results if S.inat_item(o, 'x') is not None]
+        id_above = results[-1]['id']
+        total = page.get('total_results')
+        if total is not None and len(results) >= total:
+            break
+    return out[:n]
+
+
+def inat_items_from_api(taxa, source, quality_grade='research', captive=None, max_per_taxon=None, **kw):
+    """{name: (taxon id, wanted)} -> Items (no boxes); at most min(wanted, max_per_taxon) per taxon."""
+    items = []
+    for name, (taxon_id, wanted) in taxa.items():
+        n = wanted if max_per_taxon is None else min(wanted, max_per_taxon)
+        got = [S.inat_item(o, source) for o in inat_observations(taxon_id, n, quality_grade, captive, **kw)]
+        print(f'{source}: {name}: {len(got)} photos')
+        items += got
+    return items
+
+
+def background_items_from_oi(tmp_dir, max_images=2000):
+    """Open Images ground photos (no plant tag) from the image-level label files; images are fetched while building."""
+    import urllib.request
+    os.makedirs(tmp_dir, exist_ok=True)
+    paths = []
+    for url in S.OI_IMAGELABEL_URLS:
+        p = os.path.join(tmp_dir, os.path.basename(url))
+        if not os.path.exists(p):
+            urllib.request.urlretrieve(url, p)
+        paths.append(p)
+    return S.background_items(S.oi_background_rows(paths), max_images)

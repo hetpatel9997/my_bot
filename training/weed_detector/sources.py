@@ -11,6 +11,9 @@ own labels; this file maps them onto two classes. Design: docs/superpowers/specs
                "crop" on pictures of field weeds - it would teach weeds as `keep`.)
   openimages   Open Images V7 (FiftyOne), Flower / Houseplant / Plant / Rose / Lily boxes -> keep; images
                that show a dandelion (a weed with a flower) or only drawings are skipped.
+  inat_weed    iNaturalist research-grade photos of weeds (INAT_WEED_TAXA), no boxes (labelled later).
+  inat_keep    iNaturalist photos of garden plants (INAT_KEEP_TAXA), no boxes (labelled later).
+  background   Open Images V7 "nothing here" ground photos (gravel, soil, lawn ... without any plant tag), no boxes.
 
 An Item is one image: where to get it (`src`, a local path or URL), its split and its YOLO boxes
 (class, cx, cy, w, h, all relative 0..1).
@@ -43,7 +46,32 @@ LICENCES = {
     'grassweeds': 'CC BY 4.0 - Roboflow 100 "grass-weeds" (HF LibreYOLO/grass-weeds)',
     'cropsweeds': 'MIT - CropWeeds-YOLO (Kaggle swish9/weeds-detection) via HF toolambr/crops_weeds',
     'openimages': 'images CC BY 2.0, boxes CC BY 4.0 - Open Images V7 (Google)',
+    'background': 'images CC BY 2.0 - Open Images V7 (Google), no boxes',
 }
+
+# iNaturalist: name -> (taxon id, photos wanted). Ids looked up 2026-11-25; 1290817 / 1087592 are complexes.
+INAT_WEED_TAXA = {
+    'Euphorbia maculata': (58893, 2000), 'Euphorbia prostrata': (200053, 600), 'Portulaca oleracea': (58991, 490),
+    'Taraxacum officinale': (47602, 490), 'Trifolium repens': (55745, 490), 'Plantago major': (58961, 490),
+    'Plantago lanceolata': (53178, 490), 'Oxalis corniculata': (53168, 490), 'Polygonum aviculare': (1290817, 490),
+    'Stellaria media': (1087592, 490), 'Lamium amplexicaule': (55459, 490), 'Medicago lupulina': (57056, 490),
+    'Mollugo verticillata': (78090, 490)}
+INAT_KEEP_TAXA = {
+    'Rosa': (53438, 230), 'Lavandula': (61905, 230), 'Hydrangea macrophylla': (122034, 230),
+    'Buxus sempervirens': (133397, 230), 'Tagetes': (72389, 230), 'Petunia': (55406, 230),
+    'Pelargonium': (72281, 230), 'Hibiscus \u00d7 rosa-sinensis': (1628098, 230), 'Salvia': (50644, 230),
+    'Hemerocallis': (82826, 230), 'Hosta': (82095, 230), 'Juniperus': (47574, 230),
+    'Rhododendron': (49487, 230)}
+INAT_LICENCES = {'cc0': 'CC0', 'cc-by': 'CC BY', 'cc-by-nc': 'CC BY-NC'}   # the only photo licences used
+
+# Open Images tags of bare ground (the "nothing here" photos) and of anything plant-like (those photos are dropped).
+BG_MIDS = {'/m/016b3m': 'Gravel', '/m/01tp0c': 'Pebble', '/m/01cbzq': 'Rock', '/m/09dv7': 'Soil',
+           '/m/027t7q': 'Mulch', '/m/01v327': 'Lawn', '/m/08t9c_': 'Grass', '/m/02t2zd': 'Cobblestone',
+           '/m/01jm2n': 'Walkway', '/m/01mxf': 'Concrete'}
+PLANT_MIDS = {'/m/05s2s': 'Plant', '/m/0c9ph5': 'Flower', '/m/03fp41': 'Houseplant', '/m/07j7r': 'Tree',
+              '/m/04sjm': 'Flowering plant', '/m/03gq1': 'Herb', '/m/018ssc': 'Groundcover', '/m/09t49': 'Leaf',
+              '/m/0fm3zh': 'Flowerpot', '/m/0bl0l': 'Garden', '/m/0184yy': 'Moss', '/m/01xxn0': 'Hedge',
+              '/m/01fnns': 'Vegetation', **OI_WEED_MIDS}
 
 Item = namedtuple('Item', 'source name src split boxes licence orig')
 SPLIT_DIRS = {'train': 'train', 'valid': 'val', 'val': 'val', 'test': 'test'}
@@ -165,4 +193,52 @@ def openimages_items(dataset, max_images=3000, det_field='detections', exclude_i
                           ';'.join(sorted({d.label for d in dets}))))
         if len(items) >= max_images:
             break
+    return items
+
+
+def inat_item(obs, source):
+    """An iNaturalist API observation -> Item without boxes, or None. Only the FIRST photo is used and only
+    when its licence is in INAT_LICENCES (cc0 / cc-by / cc-by-nc)."""
+    photos = obs.get('photos') or []
+    if not photos or photos[0].get('license_code') not in INAT_LICENCES:
+        return None
+    photo = photos[0]
+    oid = obs['id']
+    user = (obs.get('user') or {}).get('login') or 'unknown'
+    licence = (f"{INAT_LICENCES[photo['license_code']]} - photo by {user} - "
+               f"https://www.inaturalist.org/observations/{oid}")
+    src = photo['url'].replace('/square.', '/large.')
+    return Item(source, f"{oid}_{photo['id']}.jpg", src, stable_split(f'inat{oid}'), [], licence,
+                (obs.get('taxon') or {}).get('name', ''))
+
+
+def oi_background_rows(csv_paths):
+    """Open Images image-level label files -> (image id, OI split, ';'-joined tag names) of photos that a human
+    tagged (confidence 1) with a ground tag (BG_MIDS) and with no plant tag (PLANT_MIDS, confidence 1).
+    The OI split ('validation' / 'test') comes from the file name."""
+    import csv
+    rows = []
+    for path in csv_paths:
+        base = os.path.basename(path)
+        split = 'validation' if base.startswith('validation') else 'test'
+        bg, plant = {}, set()
+        with open(path) as f:
+            for r in csv.DictReader(f):
+                if not r['Confidence'].startswith('1'):
+                    continue
+                if r['LabelName'] in BG_MIDS:
+                    bg.setdefault(r['ImageID'], []).append(BG_MIDS[r['LabelName']])
+                if r['LabelName'] in PLANT_MIDS:
+                    plant.add(r['ImageID'])
+        rows += [(i, split, ';'.join(sorted(set(tags)))) for i, tags in bg.items() if i not in plant]
+    return rows
+
+
+def background_items(rows, max_images=2000):
+    """oi_background_rows -> Items without boxes, sorted by image id (stable), at most max_images."""
+    items = []
+    for image_id, split, tags in sorted(rows)[:max_images]:
+        src = f'https://open-images-dataset.s3.amazonaws.com/{split}/{image_id}.jpg'
+        items.append(Item('background', f'{image_id}.jpg', src, stable_split(image_id), [],
+                          LICENCES['background'], tags))
     return items
