@@ -101,6 +101,8 @@ print('GPU:', torch.cuda.get_device_name(0))
 from weed_detector import colab as C, train as T
 DS = '/content/weeds_ds'
 info = C.merge_parts(DRIVE, DS)        # only cottonweed, grassweeds, openimages (an old cropsweeds part is ignored)
+print('repair of parts from an older step 1:', C.repair_after_merge(DS))   # no-op for current parts
+info = C.summary(DS)
 print(info)
 '''),
     code('''

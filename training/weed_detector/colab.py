@@ -62,6 +62,71 @@ def merge_parts(drive_dir, out_dir, sources=EXPECTED_SOURCES):
     return summary(out_dir)
 
 
+def repair_after_merge(out_dir, weed_ids=None, tmp_dir='/content/work_oi'):
+    """Bring parts built by an OLDER step 1 up to date (a no-op for parts built by the current one):
+    - cottonweed images move to the split of their capture session (no near-duplicates across splits);
+    - openimages `keep` pictures that a human tagged with any weed in S.OI_WEED_MIDS are removed.
+    `weed_ids` (Open Images ids) is downloaded when not given. Manifests are rewritten to match.
+    Returns {'cottonweed_moved': n, 'openimages_removed': n}."""
+    import csv
+    moved = removed = 0
+    for split in ('train', 'val', 'test'):
+        for img in glob.glob(os.path.join(out_dir, split, 'images', 'cottonweed__*.jpg')):
+            stem = os.path.splitext(os.path.basename(img))[0]
+            session = '_'.join(stem.split('__', 1)[1].split('_')[:3])
+            target = S.stable_split(session)
+            if target == split:
+                continue
+            for kind, ext in (('images', '.jpg'), ('labels', '.txt')):
+                src = os.path.join(out_dir, split, kind, stem + ext)
+                dst_dir = os.path.join(out_dir, target, kind)
+                os.makedirs(dst_dir, exist_ok=True)
+                if os.path.exists(src):
+                    os.replace(src, os.path.join(dst_dir, stem + ext))
+            moved += 1
+    if weed_ids is None:
+        import urllib.request
+        os.makedirs(tmp_dir, exist_ok=True)
+        csvs = []
+        for url in S.OI_IMAGELABEL_URLS:
+            path = os.path.join(tmp_dir, os.path.basename(url))
+            if not os.path.exists(path):
+                urllib.request.urlretrieve(url, path)
+            csvs.append(path)
+        weed_ids = S.oi_weed_image_ids(csvs)
+    for split in ('train', 'val', 'test'):
+        for img in glob.glob(os.path.join(out_dir, split, 'images', 'openimages__*.jpg')):
+            stem = os.path.splitext(os.path.basename(img))[0]
+            if stem.split('__', 1)[1] in weed_ids:
+                os.remove(img)
+                lab = os.path.join(out_dir, split, 'labels', stem + '.txt')
+                if os.path.exists(lab):
+                    os.remove(lab)
+                removed += 1
+    # manifests: rewrite file / split to where the images are now; drop removed images
+    where = {}
+    for split in ('train', 'val', 'test'):
+        for img in glob.glob(os.path.join(out_dir, split, 'images', '*.jpg')):
+            where[os.path.basename(img)] = split
+    for man in glob.glob(os.path.join(out_dir, 'manifest_*.csv')):
+        with open(man) as f:
+            rows = list(csv.DictReader(f))
+        if not rows:
+            continue
+        keep_rows = []
+        for r in rows:
+            base = os.path.basename(r['file'])
+            if base in where:
+                r['split'] = where[base]
+                r['file'] = f"{where[base]}/images/{base}"
+                keep_rows.append(r)
+        with open(man, 'w', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            w.writeheader()
+            w.writerows(keep_rows)
+    return {'cottonweed_moved': moved, 'openimages_removed': removed}
+
+
 def summary(out_dir):
     """{split: {source: images}} and {class name: boxes} from the label files."""
     images = collections.defaultdict(collections.Counter)

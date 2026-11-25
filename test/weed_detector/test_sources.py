@@ -276,3 +276,38 @@ def test_resume_guard_detects_finished_run(tmp_path):
     torch.save({'epoch': 12, 'optimizer': {'state': {}}}, tmp_path / 'mid.pt')
     assert T.run_finished(tmp_path / 'done.pt') is True
     assert T.run_finished(tmp_path / 'mid.pt') is False
+
+
+def test_repair_after_merge_resplits_cottonweed_and_drops_weed_tagged(tmp_path):
+    from weed_detector import colab as C
+    ds = tmp_path / 'ds'
+    # an old-style cottonweed part: one session spread over train and test
+    session = '20210628_iPhoneSE_YL'
+    right = S.stable_split(session)
+    wrong = 'test' if right != 'test' else 'train'
+    for i, split in enumerate([right, wrong]):
+        for kind, ext, data in (('images', '.jpg', None), ('labels', '.txt', '0 0.5 0.5 0.1 0.1\n')):
+            d = ds / split / kind
+            d.mkdir(parents=True, exist_ok=True)
+            p = d / f'cottonweed__{session}_{i}{ext}'
+            if data is None:
+                Image.new('RGB', (8, 8)).save(p)
+            else:
+                p.write_text(data)
+    # two openimages keep pictures, one of them tagged with a weed
+    for oid in ('aaa', 'bbb'):
+        (ds / 'train' / 'images').mkdir(parents=True, exist_ok=True)
+        (ds / 'train' / 'labels').mkdir(parents=True, exist_ok=True)
+        Image.new('RGB', (8, 8)).save(ds / 'train' / 'images' / f'openimages__{oid}.jpg')
+        (ds / 'train' / 'labels' / f'openimages__{oid}.txt').write_text('1 0.5 0.5 0.2 0.2\n')
+    (ds / 'manifest_openimages.csv').write_text('file,split,source,n_boxes,orig_labels,licence\n'
+                                                 'train/images/openimages__aaa.jpg,train,openimages,1,Plant,x\n'
+                                                 'train/images/openimages__bbb.jpg,train,openimages,1,Plant,x\n')
+    out = C.repair_after_merge(str(ds), weed_ids={'aaa'})
+    assert out == {'cottonweed_moved': 1, 'openimages_removed': 1}
+    assert sorted(p.name for p in (ds / right / 'images').glob('cottonweed__*')) == [f'cottonweed__{session}_0.jpg', f'cottonweed__{session}_1.jpg']
+    assert (ds / right / 'labels' / f'cottonweed__{session}_1.txt').exists()
+    assert not (ds / 'train' / 'images' / 'openimages__aaa.jpg').exists()
+    rows = list(csv.DictReader(open(ds / 'manifest_openimages.csv')))
+    assert [r['file'] for r in rows] == ['train/images/openimages__bbb.jpg']
+    assert C.repair_after_merge(str(ds), weed_ids={'aaa'}) == {'cottonweed_moved': 0, 'openimages_removed': 0}
