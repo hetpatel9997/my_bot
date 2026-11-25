@@ -8,7 +8,7 @@ import json
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MODULES = ['__init__.py', 'sources.py', 'build.py', 'colab.py', 'train.py']
+MODULES = ['__init__.py', 'sources.py', 'build.py', 'teacher.py', 'colab.py', 'train.py']
 
 
 def md(text):
