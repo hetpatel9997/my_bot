@@ -152,3 +152,10 @@ and which extra open datasets to add if a source turns out unavailable.
   Dandelion / Clover / Spurge / Thistle / Weed (237 such pictures in the sample run).
 - Code, tests and the two notebooks: `training/weed_detector/` (README = owner steps). A dry run of both
   notebooks on the VM (fake Drive, small limits, CPU) ran end to end on 2026-11-24.
+- Independent review (2026-11-24) changes: CropWeeds-YOLO DROPPED (all 1,454 boxes are "crop" on pictures of
+  field weeds: it would teach weeds as `keep`); `keep` now comes from Open Images only (~3,000 pictures),
+  with more weed tags excluded (dock, plantago, wood sorrel, knotweed, lamb's quarters, amaranth);
+  CottonWeedDet12 split by capture session (no near-duplicates across splits); step 2 refuses to run without
+  a GPU, checks a finished run before resuming (Ultralytics 8.4 would silently start a new run), reports
+  precision / recall PER CLASS on the whole test split (keep recall = plants protected) with a confusion
+  matrix, and a failed NCNN export no longer loses the result zip; image cache on disk for speed.

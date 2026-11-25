@@ -7,7 +7,8 @@ own labels; this file maps them onto two classes. Design: docs/superpowers/specs
                all 12 weed species -> weed, EXCEPT grass-type weeds (Goosegrass): their boxes are dropped,
                because lawn grass is background and a broadleaf spray does not kill grasses.
   grassweeds   LibreYOLO/grass-weeds (YOLO, class "ridderzuring" = broad-leaved dock in grassland) -> weed.
-  cropsweeds   toolambr/crops_weeds (YOLO, classes crop / weed) -> keep / weed.
+  (cropsweeds  toolambr/crops_weeds is NOT used: review 2026-11-24 found all 1,454 of its boxes are class
+               "crop" on pictures of field weeds - it would teach weeds as `keep`.)
   openimages   Open Images V7 (FiftyOne), Flower / Houseplant / Plant / Rose / Lily boxes -> keep; images
                that show a dandelion (a weed with a flower) or only drawings are skipped.
 
@@ -29,7 +30,9 @@ OI_WEED_HINTS = {'Dandelion'}
 # never becomes a `keep` example. FiftyOne only loads the boxable labels, so these come from the separate
 # `*-annotations-human-imagelabels.csv` files, see oi_weed_image_ids().
 OI_WEED_MIDS = {'/m/0fr19': 'Dandelion', '/m/02qpvtx': 'Common Dandelion', '/m/0c2pc': 'Clover',
-                '/m/0grfz': 'Spurge', '/m/06tzj3': 'Thistle', '/m/08486': 'Weed'}
+                '/m/0grfz': 'Spurge', '/m/06tzj3': 'Thistle', '/m/08486': 'Weed', '/m/03218s': 'Dock',
+                '/m/0dmw0': 'Plantago', '/m/03715w': 'Wood sorrel', '/m/03pjsn': 'Knotweed',
+                '/m/03gtp5': "Lamb's quarters", '/m/0qqk': 'Amaranth'}
 OI_IMAGELABEL_URLS = ['https://storage.googleapis.com/openimages/v5/validation-annotations-human-imagelabels.csv',
                       'https://storage.googleapis.com/openimages/v5/test-annotations-human-imagelabels.csv']
 OI_PEOPLE = {'Person', 'Man', 'Woman', 'Boy', 'Girl', 'Human body', 'Human face'}
@@ -73,7 +76,10 @@ def cottonweed_items(samples_json, image_root):
                 continue
             boxes.append((WEED,) + fo_box_to_yolo(*det['bounding_box']))
         src = image_root.rstrip('/') + '/' + s['filepath']
-        items.append(Item('cottonweed', name, src, stable_split(name), boxes, LICENCES['cottonweed'], ';'.join(orig)))
+        # split by capture session (date_device_initials): photos of one session look alike, so a whole
+        # session goes to one split; otherwise near-duplicates in train and test make the test score too good
+        session = '_'.join(os.path.splitext(name)[0].split('_')[:3])
+        items.append(Item('cottonweed', name, src, stable_split(session), boxes, LICENCES['cottonweed'], ';'.join(orig)))
     return items
 
 

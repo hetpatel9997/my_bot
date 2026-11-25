@@ -194,7 +194,7 @@ def test_build_part_zip_on_drive_merge_and_summary(tmp_path):
     assert (drive / 'dataset_parts' / 'grassweeds.zip').exists()
     assert C.build_part('grassweeds', items_fn, str(work), str(drive)) == {'skipped': True}
     assert len(calls) == 1                       # no download again once the part is on Drive
-    summ = C.merge_parts(str(drive), str(merged))
+    summ = C.merge_parts(str(drive), str(merged), sources=('grassweeds',))
     assert summ == {'images': {'train': {'grassweeds': 1}, 'val': {'grassweeds': 1}}, 'boxes': {'weed': 1, 'keep': 1}}
     assert (merged / 'manifest_grassweeds.csv').exists() and (merged / 'data.yaml').exists()
 
@@ -219,3 +219,60 @@ def test_fetch_waits_and_retries_on_429(monkeypatch):
     monkeypatch.setattr(B.urllib.request, 'urlopen', fake_urlopen)
     assert B.fetch('https://hf/x.jpg', sleep=waits.append) == b'jpegbytes'
     assert waits == [7.0, 7.0] and len(calls) == 3
+
+
+def test_merge_ignores_unknown_parts_and_reports_missing(tmp_path):
+    from weed_detector import colab as C
+    assert 'cropsweeds' not in C.EXPECTED_SOURCES
+    with pytest.raises(RuntimeError, match='missing dataset parts'):
+        C.merge_parts(str(tmp_path), str(tmp_path / 'out'))
+
+
+def test_cottonweed_split_by_capture_session(tmp_path):
+    samples = [{'filepath': f'data/20210628_iPhoneSE_YL_{i}.jpg', 'ground_truth': None} for i in range(40)]
+    p = tmp_path / 's.json'
+    p.write_text(json.dumps({'samples': samples}))
+    splits = {it.split for it in S.cottonweed_items(p, '/x')}
+    assert len(splits) == 1                      # one session -> one split, no near-duplicates across splits
+
+
+def test_openimages_extra_weed_tags():
+    for name in ('Dock', 'Plantago', 'Wood sorrel', 'Knotweed', "Lamb's quarters", 'Amaranth', 'Dandelion', 'Clover'):
+        assert name in S.OI_WEED_MIDS.values()
+
+
+def test_fetch_does_not_retry_missing_files(monkeypatch):
+    import urllib.error
+    calls = []
+
+    def fake_urlopen(req, timeout=0):
+        calls.append(1)
+        raise urllib.error.HTTPError(req.full_url, 404, 'Not Found', {}, None)
+    monkeypatch.setattr(B.urllib.request, 'urlopen', fake_urlopen)
+    with pytest.raises(urllib.error.HTTPError):
+        B.fetch('https://hf/missing.jpg', sleep=lambda s: None)
+    assert len(calls) == 1
+
+
+def test_retry_wait_reads_hf_ratelimit_header():
+    import urllib.error
+    e = urllib.error.HTTPError('u', 429, 'x', {'RateLimit': '"api";r=0;t=42'}, None)
+    assert B._retry_wait(e, 0) == 43.0
+
+
+def test_source_finished_with_a_few_failed_images(tmp_path, monkeypatch):
+    good = tmp_path / 'g.jpg'
+    Image.new('RGB', (20, 20)).save(good)
+    items = [S.Item('grassweeds', f'g{i}.jpg', str(good), 'train', [], 'x', '') for i in range(300)]
+    items.append(S.Item('grassweeds', 'bad.jpg', str(tmp_path / 'nope.jpg'), 'train', [], 'x', ''))
+    counts = B.build_source('grassweeds', items, tmp_path / 'ds')
+    assert counts['failed'] == 1 and (tmp_path / 'ds' / '.done_grassweeds').exists()   # 1 of 301 < 0.5 %
+
+
+def test_resume_guard_detects_finished_run(tmp_path):
+    torch = pytest.importorskip('torch')
+    from weed_detector import train as T
+    torch.save({'epoch': -1, 'optimizer': None}, tmp_path / 'done.pt')
+    torch.save({'epoch': 12, 'optimizer': {'state': {}}}, tmp_path / 'mid.pt')
+    assert T.run_finished(tmp_path / 'done.pt') is True
+    assert T.run_finished(tmp_path / 'mid.pt') is False

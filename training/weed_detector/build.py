@@ -7,7 +7,9 @@ whose `.done_<source>` marker exists (a Colab session can stop and be re-run).
 import csv
 import io
 import os
+import re
 import time
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -16,16 +18,18 @@ from PIL import Image, ImageOps
 from .sources import CLASS_NAMES
 
 MANIFEST_FIELDS = ['file', 'split', 'source', 'n_boxes', 'orig_labels', 'licence']
+MAX_FAILED_SHARE = 0.005     # a source counts as finished when at most 0.5 % of its images failed to download
 
 
 def _retry_wait(err, attempt):
     """Seconds to wait before the next try: the server's Retry-After for 429 / 503, else 2, 4, 8 ... (max 60)."""
-    import urllib.error
     if isinstance(err, urllib.error.HTTPError) and err.code in (429, 503):
+        hdrs = err.headers or {}
         try:
-            return min(120.0, float(err.headers.get('Retry-After', '')))
+            return min(120.0, float(hdrs.get('Retry-After', '')))
         except (TypeError, ValueError):
-            return min(60.0, 5.0 * 2 ** attempt)
+            m = re.search(r't=(\d+)', hdrs.get('RateLimit', '') or '')      # Hugging Face: RateLimit: ...;t=N
+            return min(120.0, float(m.group(1)) + 1.0) if m else min(60.0, 5.0 * 2 ** attempt)
     return min(60.0, 2.0 * 2 ** attempt)
 
 
@@ -41,8 +45,8 @@ def fetch(src, retries=8, sleep=time.sleep):
             with urllib.request.urlopen(req, timeout=120) as r:
                 return r.read()
         except Exception as e:
-            if attempt == retries - 1:
-                raise
+            if attempt == retries - 1 or (isinstance(e, urllib.error.HTTPError) and e.code in (400, 401, 403, 404, 410)):
+                raise                                   # missing / forbidden: retrying cannot help
             sleep(_retry_wait(e, attempt))
 
 
@@ -114,7 +118,7 @@ def build_source(source, items, out_dir, **kw):
     if os.path.exists(marker):
         return {'skipped': True}
     counts = build(items, out_dir, **kw)
-    if counts['failed'] == 0:
+    if counts['failed'] <= MAX_FAILED_SHARE * max(1, len(items)):
         with open(marker, 'w') as f:
             f.write(str(counts))
     return counts

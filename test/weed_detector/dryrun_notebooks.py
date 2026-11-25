@@ -28,6 +28,9 @@ def adapt(src):
     if src.startswith('%%writefile') or src.startswith('!pip') or 'os.makedirs("/content/weed_detector"' in src:
         return None                                   # modules are imported from the repo instead
     src = src.replace("from google.colab import drive\ndrive.mount('/content/drive')\n", '')
+    src = src.replace("from google.colab import drive\ndrive.flush_and_unmount()", "pass")
+    src = src.replace("assert torch.cuda.is_available()", "assert True or torch.cuda.is_available()")
+    src = src.replace("print('GPU:', torch.cuda.get_device_name(0))", "print('GPU: none (VM dry run)')")
     src = src.replace("'/content/drive/MyDrive/weedbot'", repr(FAKE_DRIVE))
     src = src.replace("sys.path.insert(0, '/content')", f"sys.path.insert(0, {os.path.join(REPO, 'training')!r})")
     src = src.replace("'/content/work'", repr(WORK)).replace("'/content/weeds_ds'", repr(DS))
@@ -37,7 +40,7 @@ def adapt(src):
     src = src.replace("max_images=3000)", "max_images=20, max_samples_per_split=80)")
     src = src.replace("epochs=100, imgsz=640)", "epochs=1, imgsz=320, batch=8, device='cpu', workers=0, fraction=0.05)")
     src = src.replace("split='test', imgsz=640)", "split='test', imgsz=320, device='cpu')")
-    src = src.replace("T.export(best, imgsz=640, formats=('onnx', 'ncnn'))", "T.export(best, imgsz=320, formats=('onnx',))")
+    src = src.replace("T.export(best, imgsz=640, formats=('onnx', 'ncnn'))", "T.export(best, imgsz=320, formats=('onnx', 'ncnn'))")
     return src
 
 

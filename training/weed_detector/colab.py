@@ -14,6 +14,7 @@ from . import build as B
 from . import sources as S
 
 HF = 'https://huggingface.co/datasets'
+EXPECTED_SOURCES = ('cottonweed', 'grassweeds', 'openimages')   # cropsweeds dropped (mislabelled, see sources.py)
 
 
 def part_zip(drive_dir, source):
@@ -28,9 +29,10 @@ def build_part(source, items_fn, work_dir, drive_dir, **build_kw):
         print(f'{source}: already on Drive, skipped')
         return {'skipped': True}
     out = os.path.join(work_dir, source)
-    counts = B.build_source(source, items_fn(), out, **build_kw)
-    if counts.get('failed'):
-        print(f'{source}: {counts["failed"]} images failed; run this cell again to retry them')
+    items = items_fn()
+    counts = B.build_source(source, items, out, **build_kw)
+    if not os.path.exists(os.path.join(out, f'.done_{source}')):
+        print(f'{source}: {counts["failed"]} of {len(items)} images failed (more than 0.5 %); run this cell again to retry them')
         return counts
     man = os.path.join(out, 'manifest.csv')
     if os.path.exists(man):
@@ -43,12 +45,19 @@ def build_part(source, items_fn, work_dir, drive_dir, **build_kw):
     return counts
 
 
-def merge_parts(drive_dir, out_dir):
-    """Unzip every finished part into one dataset folder and write data.yaml. Returns summary(out_dir)."""
+def merge_parts(drive_dir, out_dir, sources=EXPECTED_SOURCES):
+    """Unzip the finished parts of `sources` (other parts on Drive, e.g. an old cropsweeds.zip, are ignored)
+    into one dataset folder and write data.yaml. Returns summary(out_dir)."""
+    missing = [s for s in sources if not os.path.exists(part_zip(drive_dir, s))]
+    if missing:
+        raise RuntimeError(f'missing dataset parts {missing}: run step 1 (01_build_dataset) until it prints DONE')
     os.makedirs(out_dir, exist_ok=True)
-    for z in sorted(glob.glob(os.path.join(drive_dir, 'dataset_parts', '*.zip'))):
-        with zipfile.ZipFile(z) as f:
-            f.extractall(out_dir)
+    for s in sources:
+        try:
+            with zipfile.ZipFile(part_zip(drive_dir, s)) as f:
+                f.extractall(out_dir)
+        except zipfile.BadZipFile:
+            raise RuntimeError(f'{part_zip(drive_dir, s)} is damaged: delete it in Google Drive and run step 1 again')
     B.write_yaml(out_dir)
     return summary(out_dir)
 
