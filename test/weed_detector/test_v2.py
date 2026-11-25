@@ -139,3 +139,19 @@ def test_background_items():
     assert it.split == S.stable_split('aa')
     assert it.licence == S.LICENCES['background']
     assert len(S.background_items(rows)) == 3
+
+
+def test_inat_items_from_api_paces_requests_across_taxa():
+    events = []
+    nxt = iter(range(1, 1000))
+
+    def get_json(url):
+        events.append('req')
+        return {'results': [obs(next(nxt))]}
+
+    taxa = {'a': (1, 1), 'b': (2, 1), 'c': (3, 2)}
+    C.inat_items_from_api(taxa, 'inat_weed', get_json=get_json, sleep=lambda s: events.append(('sleep', s)))
+    assert events.count('req') >= 4
+    for prev, cur in zip(events, events[1:]):
+        assert not (prev == 'req' and cur == 'req')
+    assert all(e[1] >= 1.0 for e in events if e != 'req')

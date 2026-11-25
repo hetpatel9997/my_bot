@@ -232,7 +232,10 @@ def inat_observations(taxon_id, n, quality_grade='research', captive=None, get_j
 def inat_items_from_api(taxa, source, quality_grade='research', captive=None, max_per_taxon=None, **kw):
     """{name: (taxon id, wanted)} -> Items (no boxes); at most min(wanted, max_per_taxon) per taxon."""
     items = []
-    for name, (taxon_id, wanted) in taxa.items():
+    sleep = kw.get('sleep', time.sleep)
+    for i, (name, (taxon_id, wanted)) in enumerate(taxa.items()):
+        if i:
+            sleep(1.0)                                  # keep 1 request / second across taxa too
         n = wanted if max_per_taxon is None else min(wanted, max_per_taxon)
         got = [S.inat_item(o, source) for o in inat_observations(taxon_id, n, quality_grade, captive, **kw)]
         print(f'{source}: {name}: {len(got)} photos')
