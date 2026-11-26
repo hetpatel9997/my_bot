@@ -1,0 +1,370 @@
+"""colab.py - the glue the two Colab notebooks run: one dataset part per source on Google Drive, merging the
+parts, and the source downloads. Kept here (not only in the notebooks) so it can be tested on the VM.
+
+Drive layout (MyDrive/weedbot/):  dataset_parts/<source>.zip   one finished source each (a stopped
+session only redoes the unfinished source);  runs/v1/   training checkpoints;  weed_detector_v1.zip  result.
+"""
+import collections
+import glob
+import os
+import json
+import shutil
+import time
+import urllib.parse
+import zipfile
+import zlib
+
+from . import build as B
+from . import sources as S
+
+HF = 'https://huggingface.co/datasets'
+EXPECTED_SOURCES = ('cottonweed', 'grassweeds', 'openimages')   # cropsweeds dropped (mislabelled, see sources.py)
+V2_SOURCES = ('cottonweed', 'grassweeds', 'openimages', 'inat_weed', 'inat_keep', 'background')
+TEACHER_SOURCES = {'inat_weed': 'weed', 'inat_keep': 'keep', 'background': 'background'}   # source -> teacher kind
+OI_MAX_BOX_AREA = 0.4      # an Open Images picture with a box covering more than this is dropped at merge
+
+
+def part_zip(drive_dir, source):
+    return os.path.join(drive_dir, 'dataset_parts', f'{source}.zip')
+
+
+def build_part(source, items_fn, work_dir, drive_dir, zip_name=None, **build_kw):
+    """Build one source into work_dir/<source> and store it as dataset_parts/<zip_name>.zip on Drive
+    (zip_name defaults to the source; the manifest is always named after the source).
+    `items_fn()` is only called (downloads only start) if that zip does not exist yet."""
+    target = part_zip(drive_dir, zip_name or source)
+    if os.path.exists(target):
+        print(f'{source}: already on Drive, skipped')
+        return {'skipped': True}
+    out = os.path.join(work_dir, source)
+    items = items_fn()
+    counts = B.build_source(source, items, out, **build_kw)
+    if not os.path.exists(os.path.join(out, f'.done_{source}')):
+        print(f'{source}: {counts["failed"]} of {len(items)} images failed (more than 0.5 %); run this cell again to retry them')
+        return counts
+    man = os.path.join(out, 'manifest.csv')
+    if os.path.exists(man):
+        os.replace(man, os.path.join(out, f'manifest_{source}.csv'))   # one manifest per part, no clash on merge
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    _zip_to_drive(out, os.path.join(work_dir, f'{source}_part'), target)
+    print(f'{source}: {counts} -> {target}')
+    return counts
+
+
+def _zip_to_drive(folder, tmp_base, target):
+    """Zip `folder` and put it at `target` through a .part file, so a stopped copy never leaves a half zip."""
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    tmp = shutil.make_archive(tmp_base, 'zip', folder)
+    shutil.copy(tmp, target + '.part')
+    os.replace(target + '.part', target)
+
+
+def zip_ok(path):
+    """True when the zip at `path` opens and every file in it reads back with the right checksum."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            return z.testzip() is None
+    except (zipfile.BadZipFile, zlib.error, EOFError, OSError):
+        return False
+
+
+def label_part(source, work_dir, drive_dir, teacher_fn):
+    """Turn dataset_parts/<source>_images.zip (photos without boxes, from step 3) into dataset_parts/<source>.zip
+    with teacher boxes. `teacher_fn()` builds the teacher; it is only called when some photo is not in the
+    cache dataset_parts/teacher_<source>.jsonl on Drive, so a stopped run continues where it stopped.
+    A labelled zip that is already on Drive is tested first: a damaged one (Colab stopped while it was copied
+    to Drive) is made again, from the cache when every photo is in it (minutes, no GPU work)."""
+    from . import teacher as T
+    target = part_zip(drive_dir, source)
+    if os.path.exists(target):
+        if zip_ok(target):
+            print(f'{source}: already labelled on Drive, skipped')
+            return {'skipped': True}
+        print(f'{source}: {target} is damaged (Colab stopped while it was copied to Drive): '
+              'labelling again from the saved teacher boxes')
+        os.remove(target)
+    images_zip = part_zip(drive_dir, f'{source}_images')
+    if not os.path.exists(images_zip):
+        raise RuntimeError(f'{images_zip} is missing: run step 3 (03_v2_collect_photos) until it prints DONE')
+    out = os.path.join(work_dir, source)
+    shutil.rmtree(out, ignore_errors=True)            # a fresh unpack; deleted photos come back and drop again from the cache
+    try:
+        with zipfile.ZipFile(images_zip) as f:
+            f.extractall(out)
+    except zipfile.BadZipFile:
+        raise RuntimeError(f'{images_zip} is damaged: delete it in Google Drive and run step 3 (03_v2_collect_photos) again')
+    cache = os.path.join(drive_dir, 'dataset_parts', f'teacher_{source}.jsonl')
+    kind = TEACHER_SOURCES[source]
+    paths = sorted(glob.glob(os.path.join(out, '*', 'images', '*.jpg')))
+    lazy = _LazyTeacher(teacher_fn)
+    res = T.label_images(paths, kind, lazy, cache)
+    _rewrite_manifests(out)
+    _zip_to_drive(out, os.path.join(work_dir, f'{source}_labelled'), target)
+    print(f'{source}: {res} -> {target}')
+    return res
+
+
+class _LazyTeacher:
+    """Builds the real teacher on the first detect() call."""
+    def __init__(self, teacher_fn):
+        self._fn, self._teacher = teacher_fn, None
+
+    def detect(self, image, queries, min_score):
+        if self._teacher is None:
+            self._teacher = self._fn()
+        return self._teacher.detect(image, queries, min_score)
+
+
+def _how_to_make(drive_dir, source, v2):
+    """What the owner runs to (re)make dataset part `source` (for merge_parts' messages). `v2`: the merge is
+    version 2's, where step 2 (02_train) must not run again: it would change runs/v1, which v2 starts from."""
+    if source in TEACHER_SOURCES:
+        step4 = 'step 4 (04_v2_label_and_train)'
+        if not os.path.exists(part_zip(drive_dir, f'{source}_images')):
+            return f'run step 3 (03_v2_collect_photos) until it prints DONE, then {step4}'
+        return f'run {step4}: it labels the photos from step 3'
+    return ('run step 1 (01_build_dataset) until it prints DONE, then run this notebook again'
+            + (' (not step 2: v1 is already trained)' if v2 else ''))
+
+
+def merge_parts(drive_dir, out_dir, sources=EXPECTED_SOURCES):
+    """Unzip the finished parts of `sources` (other parts on Drive, e.g. an old cropsweeds.zip, are ignored)
+    into one dataset folder and write data.yaml. Returns summary(out_dir). A missing or damaged part raises
+    with the notebook that makes it: step 1 for v1's parts, step 3 / 4 for v2's."""
+    v2 = any(s in TEACHER_SOURCES for s in sources)
+    missing = [s for s in sources if not os.path.exists(part_zip(drive_dir, s))]
+    if missing:
+        raise RuntimeError(f'missing dataset parts {missing}: '
+                           + '; '.join(f'{s}: {_how_to_make(drive_dir, s, v2)}' for s in missing))
+    os.makedirs(out_dir, exist_ok=True)
+    for s in sources:
+        try:
+            with zipfile.ZipFile(part_zip(drive_dir, s)) as f:
+                f.extractall(out_dir)
+        except (zipfile.BadZipFile, zlib.error, EOFError):
+            if s in TEACHER_SOURCES:
+                fix = 'run step 4 (04_v2_label_and_train) again: it labels this part again from the saved teacher boxes'
+            else:
+                fix = 'delete it in Google Drive, then ' + _how_to_make(drive_dir, s, v2)
+            raise RuntimeError(f'{part_zip(drive_dir, s)} is damaged: {fix}')
+    B.write_yaml(out_dir)
+    return summary(out_dir)
+
+
+def _rewrite_manifests(out_dir):
+    """Make every manifest_*.csv match the folder: `file` / `split` point to where each image is now, `n_boxes` is
+    counted from its label file, and rows of images that are gone are removed."""
+    import csv
+    where = {}
+    for split in ('train', 'val', 'test'):
+        for img in glob.glob(os.path.join(out_dir, split, 'images', '*.jpg')):
+            where[os.path.basename(img)] = split
+    for man in glob.glob(os.path.join(out_dir, 'manifest_*.csv')):
+        with open(man) as f:
+            rows = list(csv.DictReader(f))
+        if not rows:
+            continue
+        keep_rows = []
+        for r in rows:
+            base = os.path.basename(r['file'])
+            if base in where:
+                r['split'] = where[base]
+                r['file'] = f"{where[base]}/images/{base}"
+                lab = os.path.join(out_dir, where[base], 'labels', os.path.splitext(base)[0] + '.txt')
+                if os.path.exists(lab):
+                    with open(lab) as lf:
+                        r['n_boxes'] = sum(1 for line in lf if line.strip())
+                keep_rows.append(r)
+        with open(man, 'w', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            w.writeheader()
+            w.writerows(keep_rows)
+
+
+def drop_big_box_images(out_dir, source='openimages', max_area=OI_MAX_BOX_AREA):
+    """Remove every `source` picture (image + label) that has any box covering more than max_area of it: such a
+    box is a whole-picture box, and dropping just the box would leave the plant unlabelled. Manifests are
+    rewritten. Returns the number of pictures removed."""
+    removed = 0
+    for split in ('train', 'val', 'test'):
+        for lab in glob.glob(os.path.join(out_dir, split, 'labels', f'{source}__*.txt')):
+            with open(lab) as f:
+                areas = [float(p[3]) * float(p[4]) for p in (line.split() for line in f) if len(p) >= 5]
+            if any(a > max_area for a in areas):
+                os.remove(lab)
+                img = os.path.join(out_dir, split, 'images', os.path.splitext(os.path.basename(lab))[0] + '.jpg')
+                if os.path.exists(img):
+                    os.remove(img)
+                removed += 1
+    _rewrite_manifests(out_dir)
+    return removed
+
+
+def repair_after_merge(out_dir, weed_ids=None, tmp_dir='/content/work_oi'):
+    """Bring parts built by an OLDER step 1 up to date (a no-op for parts built by the current one):
+    - cottonweed images move to the split of their capture session (no near-duplicates across splits);
+    - openimages `keep` pictures that a human tagged with any weed in S.OI_WEED_MIDS are removed.
+    `weed_ids` (Open Images ids) is downloaded when not given. Manifests are rewritten to match.
+    Returns {'cottonweed_moved': n, 'openimages_removed': n}."""
+    moved = removed = 0
+    for split in ('train', 'val', 'test'):
+        for img in glob.glob(os.path.join(out_dir, split, 'images', 'cottonweed__*.jpg')):
+            stem = os.path.splitext(os.path.basename(img))[0]
+            session = '_'.join(stem.split('__', 1)[1].split('_')[:3])
+            target = S.stable_split(session)
+            if target == split:
+                continue
+            for kind, ext in (('images', '.jpg'), ('labels', '.txt')):
+                src = os.path.join(out_dir, split, kind, stem + ext)
+                dst_dir = os.path.join(out_dir, target, kind)
+                os.makedirs(dst_dir, exist_ok=True)
+                if os.path.exists(src):
+                    os.replace(src, os.path.join(dst_dir, stem + ext))
+            moved += 1
+    if weed_ids is None:
+        import urllib.request
+        os.makedirs(tmp_dir, exist_ok=True)
+        csvs = []
+        for url in S.OI_IMAGELABEL_URLS:
+            path = os.path.join(tmp_dir, os.path.basename(url))
+            if not os.path.exists(path):
+                urllib.request.urlretrieve(url, path)
+            csvs.append(path)
+        weed_ids = S.oi_weed_image_ids(csvs)
+    for split in ('train', 'val', 'test'):
+        for img in glob.glob(os.path.join(out_dir, split, 'images', 'openimages__*.jpg')):
+            stem = os.path.splitext(os.path.basename(img))[0]
+            if stem.split('__', 1)[1] in weed_ids:
+                os.remove(img)
+                lab = os.path.join(out_dir, split, 'labels', stem + '.txt')
+                if os.path.exists(lab):
+                    os.remove(lab)
+                removed += 1
+    _rewrite_manifests(out_dir)
+    return {'cottonweed_moved': moved, 'openimages_removed': removed}
+
+
+def summary(out_dir):
+    """{split: {source: images}} and {class name: boxes} from the label files."""
+    images = collections.defaultdict(collections.Counter)
+    boxes = collections.Counter()
+    for split in ('train', 'val', 'test'):
+        for lab in glob.glob(os.path.join(out_dir, split, 'labels', '*.txt')):
+            images[split][os.path.basename(lab).split('__')[0]] += 1
+            with open(lab) as f:
+                for line in f:
+                    if line.strip():
+                        boxes[S.CLASS_NAMES[int(line.split()[0])]] += 1
+    return {'images': {k: dict(v) for k, v in images.items()}, 'boxes': dict(boxes)}
+
+
+# ---- source downloads (need internet; used in the Colab notebook) ----
+
+def cottonweed_items_from_hf(tmp_dir):
+    """CottonWeedDet12 labels file from Hugging Face; images are fetched one by one while building."""
+    import urllib.request
+    os.makedirs(tmp_dir, exist_ok=True)
+    sj = os.path.join(tmp_dir, 'cottonweed_samples.json')
+    if not os.path.exists(sj):
+        urllib.request.urlretrieve(f'{HF}/Voxel51/CottonWeedDet12/resolve/main/samples.json', sj)
+    return S.cottonweed_items(sj, f'{HF}/Voxel51/CottonWeedDet12/resolve/main')
+
+
+def hf_yolo_items(repo, source, names, class_map, dest):
+    """Download a (small) YOLO dataset from Hugging Face and convert it."""
+    from huggingface_hub import snapshot_download
+    snapshot_download(repo, repo_type='dataset', local_dir=dest)
+    return S.yolo_dir_items(dest, source, names, class_map, S.LICENCES[source])
+
+
+def openimages_items_from_zoo(tmp_dir, max_images=3000, max_samples_per_split=6000):
+    """Open Images V7 validation + test pictures with plant boxes (FiftyOne), minus weed-tagged pictures."""
+    import urllib.request
+    import fiftyone.zoo as foz
+    os.makedirs(tmp_dir, exist_ok=True)
+    csvs = []
+    for url in S.OI_IMAGELABEL_URLS:
+        p = os.path.join(tmp_dir, os.path.basename(url))
+        if not os.path.exists(p):
+            urllib.request.urlretrieve(url, p)
+        csvs.append(p)
+    exclude = S.oi_weed_image_ids(csvs)
+    print(f'openimages: {len(exclude)} pictures tagged with a weed are left out')
+    items = []
+    for split in ('validation', 'test'):
+        ds = foz.load_zoo_dataset('open-images-v7', split=split, label_types=['detections', 'classifications'],
+                                  classes=sorted(S.OI_KEEP), max_samples=max_samples_per_split,
+                                  dataset_name=f'weedbot_oi_{split}', overwrite=True)
+        items += S.openimages_items(ds, max_images=max_images - len(items), exclude_ids=exclude)
+        if len(items) >= max_images:
+            break
+    return items
+
+
+# ---- v2 sources: iNaturalist photos and Open Images background photos ----
+
+INAT_API = 'https://api.inaturalist.org/v1/observations'
+INAT_PER_PAGE = 200
+
+
+def _inat_get_json(url, retries=8, sleep=time.sleep):
+    """JSON of an iNaturalist API call; same retry rules as build.fetch."""
+    return json.loads(B.fetch(url, retries=retries, sleep=sleep).decode('utf-8'))
+
+
+def inat_observations(taxon_id, n, quality_grade='research', captive=None, get_json=None, sleep=time.sleep):
+    """Up to n observations of a taxon whose first photo has an allowed licence (S.inat_item is not None).
+    Pages by id (id_above) so a long walk never repeats; at most 1 request per second; stops at n, on an
+    empty page, or when the API says nothing is left (total_results), so a taxon with few photos ends."""
+    get_json = get_json or _inat_get_json
+    base = {'taxon_id': taxon_id, 'photo_license': ','.join(S.INAT_LICENCES), 'per_page': INAT_PER_PAGE,
+            'order_by': 'id', 'order': 'asc'}
+    if quality_grade:
+        base['quality_grade'] = quality_grade
+    if captive is not None:
+        base['captive'] = 'true' if captive else 'false'
+    out, id_above, first = [], None, True
+    while len(out) < n:
+        params = dict(base)
+        if id_above is not None:
+            params['id_above'] = id_above
+        if not first:
+            sleep(1.0)
+        first = False
+        page = get_json(INAT_API + '?' + urllib.parse.urlencode(params, safe=','))
+        results = page.get('results') or []
+        if not results:
+            break
+        out += [o for o in results if S.inat_item(o, 'x') is not None]
+        id_above = results[-1]['id']
+        total = page.get('total_results')
+        if total is not None and len(results) >= total:
+            break
+    return out[:n]
+
+
+def inat_items_from_api(taxa, source, quality_grade='research', captive=None, max_per_taxon=None, **kw):
+    """{name: (taxon id, wanted)} -> Items (no boxes); at most min(wanted, max_per_taxon) per taxon."""
+    items = []
+    sleep = kw.get('sleep', time.sleep)
+    for i, (name, (taxon_id, wanted)) in enumerate(taxa.items()):
+        if i:
+            sleep(1.0)                                  # keep 1 request / second across taxa too
+        n = wanted if max_per_taxon is None else min(wanted, max_per_taxon)
+        got = [S.inat_item(o, source) for o in inat_observations(taxon_id, n, quality_grade, captive, **kw)]
+        print(f'{source}: {name}: {len(got)} photos')
+        items += got
+    return items
+
+
+def background_items_from_oi(tmp_dir, max_images=2000):
+    """Open Images ground photos (no plant tag) from the image-level label files; images are fetched while building."""
+    import urllib.request
+    os.makedirs(tmp_dir, exist_ok=True)
+    paths = []
+    for url in S.OI_IMAGELABEL_URLS:
+        p = os.path.join(tmp_dir, os.path.basename(url))
+        if not os.path.exists(p):
+            urllib.request.urlretrieve(url, p)
+        paths.append(p)
+    return S.background_items(S.oi_background_rows(paths), max_images)

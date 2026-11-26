@@ -1,0 +1,257 @@
+"""teacher.py - OWLv2 (open-vocabulary detector) draws the boxes on images whose class is already known.
+
+Weed photos -> `weed` boxes, garden-plant photos -> `keep` boxes, "nothing here" ground photos -> must show
+no plant. Each box's class comes from the folder (kind), not from the model; OWLv2 only says WHERE a plant is.
+Distractor queries (grass, stone, soil ...) compete with the plant queries so those things do not become boxes.
+
+The raw detections (all queries, down to RAW_MIN_SCORE) go into a JSONL cache, so thresholds and the box
+rules can change later without running the model again. Heavy imports (torch, transformers) stay inside
+Owlv2Teacher so the unit tests run without them.
+"""
+import json
+import os
+import time
+from collections import Counter, namedtuple
+
+from . import sources as S
+
+TEACHER_MODEL = 'google/owlv2-base-patch16-ensemble'
+# Prompts and thresholds set by the VM sample check 2026-11-25 (teacher_check.py on 39 iNaturalist weed, 39 garden-plant
+# and 30 Open Images ground photos; numbers in the v2 design doc, "Teacher settings from the sample check").
+QUERIES = {
+    # 'a plant with small leaves' -> 'a plant with reddish stems and small leaves': the old query drew whole-picture
+    # boxes on any foliage (18 of the 22 'close-up' drops) and the one wrong kept weed box (on a black pot); the new
+    # one is the strongest query on the spurge photos (spurge = the yard's main weed). Distractors unchanged: extra
+    # grass distractors ('a blade of grass', 'a tuft of grass') stole the narrow-leaved plantain rosettes.
+    'weed': {'plant': ['a weed', 'a small plant', 'a plant with reddish stems and small leaves'],
+             'distract': ['grass', 'a stone', 'soil', 'a human hand', 'a shoe', 'a flower', 'a shrub']},
+    # unchanged: 'a flower' stays a PLANT query (keep boxes are mostly blossoms / flower clusters). Moving it to the
+    # distractors to get whole-plant boxes gave worse boxes (part of a bush, a pot with leaves) and fewer photos.
+    'keep': {'plant': ['a flower', 'a shrub', 'a flowering plant', 'a bush'],
+             'distract': ['grass', 'a stone', 'soil', 'a human hand', 'a shoe', 'a weed', 'a flower pot']},
+    # + 'trees', 'vegetation': 4 of 23 kept ground photos showed trees / a scrub-covered hillside; these two queries
+    # drop the forest, scrub and cliff-top vegetation photos (lawn grass stays below the threshold).
+    'background': {'plant': ['a weed', 'a small plant', 'a flower', 'a shrub', 'trees', 'vegetation'],
+                   'distract': ['grass', 'a stone', 'soil', 'gravel']},
+}
+# weed 0.15 unchanged: of the 15 kept weed boxes scoring 0.15-0.20 only one was loose; raising it loses real plants.
+# keep 0.15 -> 0.25: the boxes scoring 0.15-0.24 were extra blossoms or wrong (stems + a person's legs); every kept
+# keep photo still has its main box (0.28-0.74). background 0.12 -> 0.15: needed with 'vegetation', which scores
+# 0.12-0.14 on bare rock / soil photos; every photo dropped at 0.12 before is still dropped.
+THRESHOLDS = {'weed': 0.15, 'keep': 0.25, 'background': 0.15}
+NMS_IOU = 0.5
+MIN_BOX_AREA = 0.003     # share of the image; smaller boxes teach nothing
+MAX_BOX_AREA = 0.6       # a plant filling more than this is a close-up, not a plant in a scene
+RAW_MIN_SCORE = 0.05     # detections are cached down to this score
+CLASS_OF = {'weed': S.WEED, 'keep': S.KEEP}
+
+Det = namedtuple('Det', 'query score x0 y0 x1 y1')
+
+# The prompts and thresholds above were tuned with this transformers version. 5.x pads each photo black instead of
+# grey before the model sees it, which changes some keep / drop verdicts (a weed photo kept with 9 boxes on 4.57.6
+# was dropped as a close-up on 5.20.2), so the teacher refuses to run on any other version.
+TEACHER_TRANSFORMERS = '4.57.6'
+PIN_MESSAGE = (f'transformers {TEACHER_TRANSFORMERS} is not active: click Runtime > Restart session, then '
+               'Runtime > Run all (if it stops here again, tell Claude)')
+
+
+def require_transformers():
+    """Return TEACHER_TRANSFORMERS when it is both installed (package metadata read from disk now, so a pip
+    install earlier in the session counts) and the version of any transformers module already imported in this
+    Python (an older import of another version would be the one that runs). Otherwise raise RuntimeError(PIN_MESSAGE)."""
+    import importlib
+    import importlib.metadata
+    import sys
+    importlib.invalidate_caches()                    # forget cached package listings from before a pip install
+    # Python 3.10's invalidate_caches() leaves importlib.metadata's own listing cache, which is keyed by the
+    # folder's modification time; a pip install within one clock tick of the last check kept the old answer.
+    # (3.10 defines it without @classmethod, so call it on an instance; that also works on 3.12.)
+    finder = getattr(importlib.metadata, 'MetadataPathFinder', None)
+    if finder is not None and hasattr(finder, 'invalidate_caches'):
+        finder().invalidate_caches()
+    try:
+        installed = importlib.metadata.version('transformers')
+    except importlib.metadata.PackageNotFoundError:
+        installed = None
+    mod = sys.modules.get('transformers')
+    loaded = getattr(mod, '__version__', None) if mod is not None else TEACHER_TRANSFORMERS
+    if installed != TEACHER_TRANSFORMERS or loaded != TEACHER_TRANSFORMERS:
+        raise RuntimeError(f'{PIN_MESSAGE}. Found: installed {installed}, already imported '
+                           f'{loaded if mod is not None else "none"}')
+    return installed
+
+
+def queries_for(kind):
+    q = QUERIES[kind]
+    return list(q['plant']) + list(q['distract'])
+
+
+def pixel_box_to_rel(box_px, width, height):
+    x0, y0, x1, y1 = box_px
+    clip = lambda v: min(1.0, max(0.0, v))      # noqa: E731
+    return (clip(x0 / width), clip(y0 / height), clip(x1 / width), clip(y1 / height))
+
+
+def _iou(a, b):
+    iw = min(a.x1, b.x1) - max(a.x0, b.x0)
+    ih = min(a.y1, b.y1) - max(a.y0, b.y0)
+    if iw <= 0 or ih <= 0:
+        return 0.0
+    inter = iw * ih
+    union = (a.x1 - a.x0) * (a.y1 - a.y0) + (b.x1 - b.x0) * (b.y1 - b.y0) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def select_boxes(dets, kind):
+    """YOLO boxes (cls, cx, cy, w, h) from raw dets: plant queries only, score >= threshold, not tiny, NMS.
+    Boxes above MAX_BOX_AREA are kept here; image_verdict() rejects the whole image as a close-up."""
+    if kind not in CLASS_OF:
+        return []
+    plant = set(QUERIES[kind]['plant'])
+    cand = [d for d in dets if d.query in plant and d.score >= THRESHOLDS[kind]
+            and (d.x1 - d.x0) * (d.y1 - d.y0) >= MIN_BOX_AREA]
+    cand.sort(key=lambda d: -d.score)
+    kept = []
+    for d in cand:
+        if all(_iou(d, k) <= NMS_IOU for k in kept):
+            kept.append(d)
+    return [(CLASS_OF[kind], (d.x0 + d.x1) / 2, (d.y0 + d.y1) / 2, d.x1 - d.x0, d.y1 - d.y0) for d in kept]
+
+
+def image_verdict(kind, boxes, dets):
+    """Why an image must be dropped from the dataset, or None."""
+    if kind == 'background':
+        plant = set(QUERIES['background']['plant'])
+        if any(d.query in plant and d.score >= THRESHOLDS['background'] for d in dets):
+            return 'plant found'
+        return None
+    if not boxes:
+        return 'teacher found no plant'
+    if any(b[3] * b[4] > MAX_BOX_AREA for b in boxes):
+        return 'close-up'
+    return None
+
+
+class Owlv2Teacher:
+    def __init__(self, model_id=TEACHER_MODEL, device=None):
+        import torch
+        from transformers import Owlv2ForObjectDetection, Owlv2Processor
+        require_transformers()                       # never build the teacher on another transformers version
+        self.torch = torch
+        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.processor = Owlv2Processor.from_pretrained(model_id)
+        self.model = Owlv2ForObjectDetection.from_pretrained(model_id).to(self.device).eval()
+
+    def detect(self, image, queries, min_score=RAW_MIN_SCORE):
+        """Dets for ALL queries >= min_score; each box carries its best query."""
+        torch = self.torch
+        w, h = image.size
+        inputs = self.processor(text=[list(queries)], images=image, return_tensors='pt').to(self.device)
+        with torch.no_grad():
+            out = self.model(**inputs)
+        side = max(w, h)          # OWLv2 pads the image to a square at the bottom / right
+        # The image processor's own method: the same call and result in transformers 4.57 and 5.x (the processor's
+        # wrapper was removed in 5.x). The teacher itself runs only on TEACHER_TRANSFORMERS (see require_transformers).
+        res = self.processor.image_processor.post_process_object_detection(
+            out, threshold=min_score, target_sizes=[(side, side)])[0]
+        dets = []
+        for box, score, lab in zip(res['boxes'].tolist(), res['scores'].tolist(), res['labels'].tolist()):
+            dets.append(Det(queries[lab], float(score), *pixel_box_to_rel(box, w, h)))
+        return dets
+
+
+def _label_path(img_path):
+    folder, name = os.path.split(img_path)
+    root, images = os.path.split(folder)
+    if images != 'images':
+        raise ValueError(f'not in an images/ folder: {img_path}')
+    return os.path.join(root, 'labels', os.path.splitext(name)[0] + '.txt')
+
+
+def _load_cache(path, queries):
+    cache = {}
+    if not os.path.exists(path):
+        return cache
+    with open(path) as f:
+        for line in f:
+            try:
+                row = json.loads(line)
+                if row['queries'] == queries:
+                    cache[row['stem']] = (row['w'], row['h'], [Det(*d) for d in row['dets']])
+            except (ValueError, KeyError, TypeError):
+                continue                    # a cut or damaged line: that image is simply detected again
+    return cache
+
+
+def label_images(image_paths, kind, teacher, cache_path, log_every=200):
+    """Write label files for images in <root>/<split>/images/ (build.py layout) from the teacher's boxes;
+    delete image + label when image_verdict() says so. Paths that no longer exist are skipped.
+    Returns {'labelled', 'boxes', 'from_cache', 'dropped': {reason: n}}."""
+    from PIL import Image, ImageOps
+    queries = queries_for(kind)
+    cache = _load_cache(cache_path, queries)
+    res = {'labelled': 0, 'boxes': 0, 'from_cache': 0, 'dropped': Counter()}
+    pending = []
+    os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
+
+    def flush():
+        if not pending:
+            return
+        need_nl = os.path.exists(cache_path) and os.path.getsize(cache_path) > 0
+        if need_nl:
+            with open(cache_path, 'rb') as f:
+                f.seek(-1, os.SEEK_END)
+                need_nl = f.read(1) != b'\n'
+        with open(cache_path, 'a') as f:
+            if need_nl:
+                f.write('\n')
+            f.write(''.join(pending))
+            f.flush()
+        pending.clear()
+
+    def drop(img, lab, reason):
+        for p in (img, lab):
+            if os.path.exists(p):
+                os.remove(p)
+        res['dropped'][reason] += 1
+
+    t0, done = time.time(), 0
+    try:
+        for img in image_paths:
+            if not os.path.exists(img):
+                continue
+            lab = _label_path(img)
+            stem = os.path.splitext(os.path.basename(img))[0]
+            if stem in cache:
+                dets = cache[stem][2]
+                res['from_cache'] += 1
+            else:
+                try:                                        # only the photo itself may be 'unreadable'
+                    with Image.open(img) as im:
+                        im = ImageOps.exif_transpose(im).convert('RGB')
+                        w, h = im.size
+                except (OSError, ValueError, SyntaxError):
+                    drop(img, lab, 'unreadable')
+                    continue
+                dets = teacher.detect(im, queries, RAW_MIN_SCORE)   # a model error crashes and keeps the photo
+                pending.append(json.dumps({'stem': stem, 'w': w, 'h': h, 'queries': queries,
+                                           'dets': [list(d) for d in dets]}) + '\n')
+            boxes = select_boxes(dets, kind)
+            reason = image_verdict(kind, boxes, dets)
+            if reason:
+                drop(img, lab, reason)
+            else:
+                with open(lab, 'w') as f:
+                    for c, cx, cy, bw, bh in boxes:
+                        f.write(f'{c} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n')
+                res['labelled'] += 1
+                res['boxes'] += len(boxes)
+            done += 1
+            if log_every and done % log_every == 0:
+                flush()
+                print(f'{done}/{len(image_paths)} images, {done / max(1e-9, time.time() - t0):.2f} img/s, '
+                      f'{dict(res["dropped"])}', flush=True)
+    finally:
+        flush()                                       # labels already paid for survive a model error
+    res['dropped'] = dict(res['dropped'])
+    return res
