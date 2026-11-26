@@ -47,6 +47,33 @@ CLASS_OF = {'weed': S.WEED, 'keep': S.KEEP}
 
 Det = namedtuple('Det', 'query score x0 y0 x1 y1')
 
+# The prompts and thresholds above were tuned with this transformers version. 5.x pads each photo black instead of
+# grey before the model sees it, which changes some keep / drop verdicts (a weed photo kept with 9 boxes on 4.57.6
+# was dropped as a close-up on 5.20.2), so the teacher refuses to run on any other version.
+TEACHER_TRANSFORMERS = '4.57.6'
+PIN_MESSAGE = (f'transformers {TEACHER_TRANSFORMERS} is not active: click Runtime > Restart session, then '
+               'Runtime > Run all (if it stops here again, tell Claude)')
+
+
+def require_transformers():
+    """Return TEACHER_TRANSFORMERS when it is both installed (package metadata read from disk now, so a pip
+    install earlier in the session counts) and the version of any transformers module already imported in this
+    Python (an older import of another version would be the one that runs). Otherwise raise RuntimeError(PIN_MESSAGE)."""
+    import importlib
+    import importlib.metadata
+    import sys
+    importlib.invalidate_caches()                    # forget cached package listings from before a pip install
+    try:
+        installed = importlib.metadata.version('transformers')
+    except importlib.metadata.PackageNotFoundError:
+        installed = None
+    mod = sys.modules.get('transformers')
+    loaded = getattr(mod, '__version__', None) if mod is not None else TEACHER_TRANSFORMERS
+    if installed != TEACHER_TRANSFORMERS or loaded != TEACHER_TRANSFORMERS:
+        raise RuntimeError(f'{PIN_MESSAGE}. Found: installed {installed}, already imported '
+                           f'{loaded if mod is not None else "none"}')
+    return installed
+
 
 def queries_for(kind):
     q = QUERIES[kind]
@@ -103,6 +130,7 @@ class Owlv2Teacher:
     def __init__(self, model_id=TEACHER_MODEL, device=None):
         import torch
         from transformers import Owlv2ForObjectDetection, Owlv2Processor
+        require_transformers()                       # never build the teacher on another transformers version
         self.torch = torch
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         self.processor = Owlv2Processor.from_pretrained(model_id)
@@ -117,8 +145,7 @@ class Owlv2Teacher:
             out = self.model(**inputs)
         side = max(w, h)          # OWLv2 pads the image to a square at the bottom / right
         # The image processor's own method: the same call and result in transformers 4.57 and 5.x (the processor's
-        # wrapper was removed in 5.x). The teacher was tuned with 4.57.6, which notebook 04 installs: 5.x pads with
-        # black instead of grey, which moves the scores a little (no crash).
+        # wrapper was removed in 5.x). The teacher itself runs only on TEACHER_TRANSFORMERS (see require_transformers).
         res = self.processor.image_processor.post_process_object_detection(
             out, threshold=min_score, target_sizes=[(side, side)])[0]
         dets = []

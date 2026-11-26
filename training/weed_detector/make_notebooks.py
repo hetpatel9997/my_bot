@@ -299,7 +299,9 @@ on Drive (it prints `already labelled on Drive, skipped`) and training continues
 restart it first unpacks and prepares the photos for about 10-20 minutes before training goes on: that is
 normal, it is not stuck.
 The install cell may print red warnings about other packages ("dependency conflicts"): expected, ignore them.
-If Colab asks you to restart the session, click Restart session, then Runtime -> **Run all** again.
+If Colab asks you to restart the session, click Restart session, then Runtime -> **Run all** again. If it stops
+with `transformers 4.57.6 is not active`, do what it says (Runtime > Restart session, then Runtime > Run all);
+if it stops there again, tell Claude.
 If Colab says the GPU is not available, try again later (do not switch to CPU).
 When it prints **ALL DONE**, download `weed_detector_v2.zip` from Drive (MyDrive/weedbot) and send it to Claude.
 The first zip you send Claude is the final v2 model: do not run step 4 or 4b again after that.
@@ -329,12 +331,14 @@ torch_before = version_of('torch')
 if version_of('transformers') != '4.57.6':
     !pip -q install transformers==4.57.6
 assert version_of('torch') == torch_before, 'pip changed torch: Runtime -> Restart session, then Run all again'
-print('transformers', version_of('transformers'), '| ultralytics', version_of('ultralytics'), '| torch', torch_before)
+from weed_detector import teacher as TE
+transformers_version = TE.require_transformers()      # STOPS here unless 4.57.6 is installed and active
+print('transformers', transformers_version, '| ultralytics', version_of('ultralytics'), '| torch', torch_before)
 '''),
     code('''
-import gc, json, torch, transformers
+import gc, json, torch
 from weed_detector import colab as C, teacher as TE
-print('teacher runs on transformers', transformers.__version__, '(tuned with 4.57.6)')
+print('teacher runs on transformers', TE.require_transformers())   # stops unless 4.57.6 (the tuned teacher)
 
 
 def label_all():

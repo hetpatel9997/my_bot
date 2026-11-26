@@ -248,6 +248,66 @@ class _FakeTorch:
         return contextlib.nullcontext()
 
 
+def _installed(version):
+    """A stand-in for importlib.metadata.version: transformers is installed at `version` (None = not at all)."""
+    import importlib.metadata
+
+    def fake(pkg):
+        if pkg == 'transformers' and version is not None:
+            return version
+        raise importlib.metadata.PackageNotFoundError(pkg)
+    return fake
+
+
+@pytest.mark.parametrize('installed', ['5.20.2', '4.57.5', None])
+def test_require_transformers_stops_when_the_pin_is_not_installed(monkeypatch, installed):
+    import importlib.metadata
+    monkeypatch.setattr(importlib.metadata, 'version', _installed(installed))
+    monkeypatch.delitem(sys.modules, 'transformers', raising=False)
+    with pytest.raises(RuntimeError) as e:
+        TE.require_transformers()
+    assert str(e.value).startswith(TE.PIN_MESSAGE)
+    assert 'Runtime > Restart session, then Runtime > Run all' in str(e.value)
+
+
+def test_require_transformers_stops_on_an_older_import_of_another_version(monkeypatch):
+    """4.57.6 is installed now, but 5.x was imported earlier in this Python: the imported one would run."""
+    import importlib.metadata
+    import types
+    monkeypatch.setattr(importlib.metadata, 'version', _installed(TE.TEACHER_TRANSFORMERS))
+    monkeypatch.setitem(sys.modules, 'transformers', types.SimpleNamespace(__version__='5.20.2'))
+    with pytest.raises(RuntimeError, match='transformers 4.57.6 is not active'):
+        TE.require_transformers()
+
+
+def test_require_transformers_sees_a_pip_install_made_after_an_earlier_check(tmp_path, monkeypatch):
+    """Real package metadata on disk (first on sys.path): 5.20.2, then pip swaps it for 4.57.6 in the same Python."""
+    def dist(version):
+        d = tmp_path / f'transformers-{version}.dist-info'
+        d.mkdir()
+        (d / 'METADATA').write_text(f'Metadata-Version: 2.1\nName: transformers\nVersion: {version}\n')
+        return d
+    old = dist('5.20.2')
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, 'transformers', raising=False)
+    with pytest.raises(RuntimeError, match='installed 5.20.2'):
+        TE.require_transformers()
+    import shutil
+    shutil.rmtree(old)                                   # what pip does: the old version out, the new one in
+    dist('4.57.6')
+    assert TE.require_transformers() == '4.57.6'
+
+
+def test_require_transformers_passes_on_the_pin(monkeypatch):
+    import importlib.metadata
+    import types
+    monkeypatch.setattr(importlib.metadata, 'version', _installed('4.57.6'))
+    monkeypatch.delitem(sys.modules, 'transformers', raising=False)
+    assert TE.require_transformers() == '4.57.6'
+    monkeypatch.setitem(sys.modules, 'transformers', types.SimpleNamespace(__version__='4.57.6'))
+    assert TE.require_transformers() == '4.57.6'
+
+
 def test_teacher_detect_uses_the_image_processor_post_process():
     assert not hasattr(_FakeProcessor(), 'post_process_object_detection')
     t = TE.Owlv2Teacher.__new__(TE.Owlv2Teacher)          # no model: the fakes stand in for torch + transformers

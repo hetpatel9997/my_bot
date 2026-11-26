@@ -41,6 +41,8 @@ gravel, soil and lawn. Then the small model learns again from all of them, start
    (the first day is mostly labelling).
    The install cell near the top may print red warnings about other packages ("dependency conflicts"): that is
    expected, ignore them. If Colab asks you to restart the session, click Restart session, then **Run all** again.
+   If it stops with `transformers 4.57.6 is not active: click Runtime > Restart session, then Runtime > Run all`,
+   do exactly that; if it stops there again, tell Claude (it refuses to label with another version on purpose).
 5. **When Colab stops** ("runtime disconnected", or a message about GPU usage limits): come back later
    (often the next day), open `04_v2_label_and_train.ipynb` again and press **Run all**. Nothing is lost:
    finished labelling is kept on Drive (it prints `inat_weed: already labelled on Drive, skipped`, and the same
@@ -151,9 +153,11 @@ missing from Drive (`runs/v1/weights/best.pt`): tell Claude. If it stops with `.
   `-m weed_detector.backyard_check ...`.
 - `teacher_check.py` and `backyard_check.py` are not pasted into the notebooks (not in `make_notebooks.py` MODULES).
 - Versions: notebook 04 installs transformers 4.57.6 only when another version is there (the teacher's prompts
-  and thresholds were tuned with it; 5.x pads photos black instead of grey, which moves the scores a little;
-  `teacher.py` calls the image processor's post-processing, which exists in 4.57 and 5.x, so a missed pin does
-  not crash). 04 and 04b pin ultralytics 8.4.218 (v1's version; `train.run_finished` depends on 8.4 behaviour).
+  and thresholds were tuned with it; 5.x pads photos black instead of grey, which changes some keep / drop
+  verdicts). `teacher.require_transformers()` stops the notebook (end of the install cell, start of the labelling
+  cell) and `Owlv2Teacher()` unless 4.57.6 is both installed and the version imported, so a failed pin never falls
+  back to 5.x. `detect()` calls the image processor's post-processing, which exists in 4.57 and 5.x. 04 and 04b
+  pin ultralytics 8.4.218 (v1's version; `train.run_finished` depends on 8.4 behaviour).
 - After any change: `python3 training/weed_detector/make_notebooks.py` (regenerates all six notebooks; the v1
   notebooks' cells stay the same apart from the pasted modules).
 - Tests: `python3 -m pytest test/weed_detector -q` (and the same with the venv's python). End-to-end check on the

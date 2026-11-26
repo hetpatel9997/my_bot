@@ -106,7 +106,7 @@ Inside 1, synthetic composites were considered and deferred (more moving parts; 
   finish-without-GPU notebook works for v2 too.
 - Owner steps stay the same shape: one dataset notebook (needs a **GPU** this time, for the teacher),
   one training notebook, optional finish notebook; result `MyDrive/weedbot/weed_detector_v2.zip`.
-  Drive space needed beyond v1's: ~4.5 GB.
+  Drive space needed beyond v1's: ~5.3 GB.
 
 ### Checks before v2 goes on the robot (Claude, on the VM)
 1. **Backyard check.** Reference: the teacher's boxes on quarter tiles of IMG_0229/0230, each kept or
