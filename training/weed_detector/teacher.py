@@ -116,7 +116,11 @@ class Owlv2Teacher:
         with torch.no_grad():
             out = self.model(**inputs)
         side = max(w, h)          # OWLv2 pads the image to a square at the bottom / right
-        res = self.processor.post_process_object_detection(out, threshold=min_score, target_sizes=[(side, side)])[0]
+        # The image processor's own method: the same call and result in transformers 4.57 and 5.x (the processor's
+        # wrapper was removed in 5.x). The teacher was tuned with 4.57.6, which notebook 04 installs: 5.x pads with
+        # black instead of grey, which moves the scores a little (no crash).
+        res = self.processor.image_processor.post_process_object_detection(
+            out, threshold=min_score, target_sizes=[(side, side)])[0]
         dets = []
         for box, score, lab in zip(res['boxes'].tolist(), res['scores'].tolist(), res['labels'].tolist()):
             dets.append(Det(queries[lab], float(score), *pixel_box_to_rel(box, w, h)))

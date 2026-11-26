@@ -213,6 +213,53 @@ def test_pixel_box_to_rel_non_square():
     assert TE.pixel_box_to_rel((100, 50, 300, 250), 400, 200) == pytest.approx((0.25, 0.25, 0.75, 1.0))
 
 
+class _Listish(list):
+    def tolist(self):
+        return list(self)
+
+
+class _FakeImageProcessor:
+    def __init__(self):
+        self.calls = []
+
+    def post_process_object_detection(self, outputs, threshold=0.1, target_sizes=None):
+        self.calls.append((outputs, threshold, target_sizes))
+        return [{'boxes': _Listish([[100.0, 50.0, 300.0, 250.0]]), 'scores': _Listish([0.4]), 'labels': _Listish([1])}]
+
+
+class _FakeInputs(dict):
+    def to(self, device):
+        return self
+
+
+class _FakeProcessor:
+    """Like transformers 5.x's Owlv2Processor: post_process_object_detection exists only on .image_processor."""
+    def __init__(self):
+        self.image_processor = _FakeImageProcessor()
+
+    def __call__(self, text, images, return_tensors):
+        return _FakeInputs(pixel_values='px')
+
+
+class _FakeTorch:
+    @staticmethod
+    def no_grad():
+        import contextlib
+        return contextlib.nullcontext()
+
+
+def test_teacher_detect_uses_the_image_processor_post_process():
+    assert not hasattr(_FakeProcessor(), 'post_process_object_detection')
+    t = TE.Owlv2Teacher.__new__(TE.Owlv2Teacher)          # no model: the fakes stand in for torch + transformers
+    t.torch, t.device, t.processor = _FakeTorch(), 'cpu', _FakeProcessor()
+    t.model = lambda **inputs: ('model output', inputs)
+    dets = t.detect(Image.new('RGB', (400, 200)), ['a weed', 'a small plant'])
+    assert dets == [TE.Det('a small plant', 0.4, 0.25, 0.25, 0.75, 1.0)]
+    (outputs, threshold, sizes), = t.processor.image_processor.calls
+    assert outputs == ('model output', {'pixel_values': 'px'})
+    assert threshold == TE.RAW_MIN_SCORE and sizes == [(400, 400)]       # padded square: the long side
+
+
 class NamedFake:
     """Returns Dets by the image's pixel width (each test image gets its own width)."""
     def __init__(self, by_name=None, raises=False):
@@ -391,6 +438,103 @@ def test_label_part_cache_covers_part_of_the_photos(tmp_path):
     second = NamedFake({30: [good_det()], 40: [good_det()]})
     res = C.label_part('inat_weed', str(work), str(drive), lambda: second)
     assert second.calls == 1 and res['from_cache'] == 1 and res['labelled'] == 2
+
+
+def _damage_zip(path, how):
+    """Break a labelled zip the ways a Colab stop during the copy to Drive can."""
+    if how == 'junk':
+        path.write_bytes(b'junk')
+    elif how == 'empty':
+        path.write_bytes(b'')
+    elif how == 'cut':
+        data = path.read_bytes()
+        path.write_bytes(data[:len(data) // 2])
+    elif how == 'bad_crc':                         # the zip opens (central directory fine), a file's bytes are wrong
+        with zipfile.ZipFile(path, 'w', zipfile.ZIP_STORED) as z:
+            z.writestr('train/labels/x.txt', 'hello weed')
+        path.write_bytes(path.read_bytes().replace(b'hello weed', b'jello weed', 1))
+
+
+@pytest.mark.parametrize('how', ['junk', 'empty', 'cut', 'bad_crc'])
+def test_label_part_relabels_a_damaged_labelled_zip_from_the_cache(tmp_path, how):
+    drive, work = make_images_part(tmp_path, [30, 40])
+    C.label_part('inat_weed', str(work), str(drive), lambda: NamedFake({30: [good_det()], 40: [good_det()]}))
+    target = drive / 'dataset_parts' / 'inat_weed.zip'
+    _damage_zip(target, how)
+    assert not C.zip_ok(str(target))
+
+    def no_teacher():
+        raise AssertionError('every photo is in the teacher cache: no teacher (no GPU) needed')
+    res = C.label_part('inat_weed', str(work), str(drive), no_teacher)
+    assert res['from_cache'] == 2 and res['labelled'] == 2
+    assert C.zip_ok(str(target))
+    assert {'train/images/inat_weed__0.jpg', 'train/images/inat_weed__1.jpg'} <= zip_names(target)
+
+
+def test_zip_ok_accepts_a_good_zip(tmp_path):
+    p = tmp_path / 'good.zip'
+    with zipfile.ZipFile(p, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('train/labels/x.txt', '0 0.5 0.5 0.1 0.1\n')
+    assert C.zip_ok(str(p))
+    assert not C.zip_ok(str(tmp_path / 'missing.zip'))
+
+
+def _parts(drive, names, broken=()):
+    """Valid (empty) zips for `names` and junk zips for `broken` in drive/dataset_parts."""
+    (drive / 'dataset_parts').mkdir(parents=True, exist_ok=True)
+    for n in names:
+        zipfile.ZipFile(drive / 'dataset_parts' / f'{n}.zip', 'w').close()
+    for n in broken:
+        (drive / 'dataset_parts' / f'{n}.zip').write_bytes(b'junk')
+
+
+def _merge_error(drive, tmp_path, sources):
+    with pytest.raises(RuntimeError) as e:
+        C.merge_parts(str(drive), str(tmp_path / 'out'), sources=sources)
+    return str(e.value)
+
+
+def test_merge_missing_v1_part_names_step_1(tmp_path):
+    drive = tmp_path / 'd'
+    _parts(drive, [s for s in C.V2_SOURCES if s != 'grassweeds'])
+    msg = _merge_error(drive, tmp_path, C.V2_SOURCES)
+    assert 'missing dataset parts' in msg and 'grassweeds' in msg and '01_build_dataset' in msg
+    assert 'not step 2' in msg                         # in v2, running 02_train again would change runs/v1
+    assert '03_v2' not in msg and '04_v2' not in msg
+    msg1 = _merge_error(tmp_path / 'empty', tmp_path, C.EXPECTED_SOURCES)      # v1's own merge (02 / 02b)
+    assert '01_build_dataset' in msg1 and 'not step 2' not in msg1
+
+
+def test_merge_missing_v2_part_names_step_4(tmp_path):
+    drive = tmp_path / 'd'
+    _parts(drive, [s for s in C.V2_SOURCES if s != 'inat_keep'] + ['inat_keep_images'])
+    msg = _merge_error(drive, tmp_path, C.V2_SOURCES)
+    assert 'missing dataset parts' in msg and 'inat_keep' in msg and '04_v2_label_and_train' in msg
+    assert '01_build_dataset' not in msg and '03_v2' not in msg
+
+
+def test_merge_missing_v2_part_without_its_photos_names_step_3(tmp_path):
+    drive = tmp_path / 'd'
+    _parts(drive, [s for s in C.V2_SOURCES if s != 'background'])
+    msg = _merge_error(drive, tmp_path, C.V2_SOURCES)
+    assert 'background' in msg and '03_v2_collect_photos' in msg and '04_v2_label_and_train' in msg
+    assert '01_build_dataset' not in msg
+
+
+def test_merge_damaged_v1_part_names_step_1(tmp_path):
+    drive = tmp_path / 'd'
+    _parts(drive, [s for s in C.V2_SOURCES if s != 'openimages'], broken=['openimages'])
+    msg = _merge_error(drive, tmp_path, C.V2_SOURCES)
+    assert 'openimages.zip is damaged' in msg and '01_build_dataset' in msg and 'not step 2' in msg
+    assert '04_v2' not in msg
+
+
+def test_merge_damaged_v2_part_names_step_4(tmp_path):
+    drive = tmp_path / 'd'
+    _parts(drive, [s for s in C.V2_SOURCES if s != 'inat_weed'] + ['inat_weed_images'], broken=['inat_weed'])
+    msg = _merge_error(drive, tmp_path, C.V2_SOURCES)
+    assert 'inat_weed.zip is damaged' in msg and '04_v2_label_and_train' in msg
+    assert '01_build_dataset' not in msg
 
 
 def test_drop_big_box_images(tmp_path):

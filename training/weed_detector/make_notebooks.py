@@ -243,8 +243,8 @@ NB3 = [
 # WeedBot weed detector v2 - step 3: collect the new photos
 Downloads ~20,000 public photos that have no boxes yet: weeds (~12,000) and garden plants (~6,000) from
 iNaturalist, and ~2,000 "nothing here" ground photos (gravel, soil, lawn) from Open Images. They are stored in
-your Google Drive (`MyDrive/weedbot/dataset_parts/`): most of the ~4.5 GB that version 2 needs (keep 6 GB free
-to be safe). Step 4 draws the boxes and trains.
+your Google Drive (`MyDrive/weedbot/dataset_parts/`): about 4 GB of the ~5.3 GB that version 2 needs (keep 6 GB
+free to be safe). Step 4 draws the boxes and trains.
 
 **How:** Runtime -> Change runtime type -> **CPU** (no GPU needed here: it keeps your free GPU time for step 4),
 then Runtime -> **Run all**. Allow Google Drive access when asked. Takes roughly 1-3 hours.
@@ -287,16 +287,22 @@ print(f'DONE: all {len(done)} photo parts are on Drive, go to step 4' if len(don
 NB4 = [
     md('''
 # WeedBot weed detector v2 - step 4: label the new photos, then train v2
-First a big model (OWLv2, the "teacher") draws a box around the plant in each photo from step 3 (about 1.5-3
-hours). Then the small detector is trained again, starting from v1, on all the photos (about 4-5 hours).
+First a big model (OWLv2, the "teacher") draws a box around the plant in each photo from step 3 (about 3-4.5
+hours of T4 time). Then the small detector is trained again, starting from v1, on all the photos (about 4-5 hours).
 The result goes to your Google Drive as `MyDrive/weedbot/weed_detector_v2.zip`.
 
 **How:** Runtime -> Change runtime type -> **T4 GPU**, then Runtime -> **Run all**. Allow Google Drive access.
-Keep the laptop awake. This needs more GPU time than free Colab gives in one day, so it usually takes two days.
+Keep the laptop awake. This needs more GPU time than free Colab gives in one day: plan for 2-3 days (the first
+day is mostly labelling).
 When Colab stops, come back later, open this notebook again and press **Run all**: finished labelling is kept
-on Drive (it prints `already labelled on Drive, skipped`) and training continues from its last round.
+on Drive (it prints `already labelled on Drive, skipped`) and training continues from its last round. After each
+restart it first unpacks and prepares the photos for about 10-20 minutes before training goes on: that is
+normal, it is not stuck.
+The install cell may print red warnings about other packages ("dependency conflicts"): expected, ignore them.
+If Colab asks you to restart the session, click Restart session, then Runtime -> **Run all** again.
 If Colab says the GPU is not available, try again later (do not switch to CPU).
-When it prints **ALL DONE**, download `weed_detector_v2.zip` from Drive (MyDrive/weedbot) and tell Claude.
+When it prints **ALL DONE**, download `weed_detector_v2.zip` from Drive (MyDrive/weedbot) and send it to Claude.
+The first zip you send Claude is the final v2 model: do not run step 4 or 4b again after that.
 If it stopped near the end (for example round 47 of 50) and Colab says "Cannot connect to GPU backend",
 use step 4b (`04b_v2_finish_without_gpu.ipynb`) instead.
 '''),
@@ -305,15 +311,30 @@ assert os.path.exists(DRIVE + '/runs/v1/weights/best.pt'), 'v1 must be trained f
 '''),
 ] + module_cells() + [
     code('''
-!pip -q install ultralytics
-# Colab already has transformers (for the teacher): installing it anyway could change Colab's torch
-import importlib.util
-if importlib.util.find_spec('transformers') is None:
-    !pip -q install transformers
+!pip -q install ultralytics==8.4.218
+# The teacher must be transformers 4.57.6: its prompts and thresholds were tuned with that version on the VM
+# (5.x pads the photos black instead of grey, which moves the scores a little). 4.57.6 does not need torch, so
+# Colab's torch stays. Nothing may import transformers before this cell.
+import importlib.metadata
+
+
+def version_of(pkg):
+    try:
+        return importlib.metadata.version(pkg)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+torch_before = version_of('torch')
+if version_of('transformers') != '4.57.6':
+    !pip -q install transformers==4.57.6
+assert version_of('torch') == torch_before, 'pip changed torch: Runtime -> Restart session, then Run all again'
+print('transformers', version_of('transformers'), '| ultralytics', version_of('ultralytics'), '| torch', torch_before)
 '''),
     code('''
-import gc, json, torch
+import gc, json, torch, transformers
 from weed_detector import colab as C, teacher as TE
+print('teacher runs on transformers', transformers.__version__, '(tuned with 4.57.6)')
 
 
 def label_all():
@@ -343,17 +364,18 @@ NB4B = [
 Use this only when step 4 stopped near the end (for example round 47 of 50) and Colab says
 "Cannot connect to GPU backend". It takes the best model step 4 already saved on your Drive, tests it,
 makes the Pi versions and writes `MyDrive/weedbot/weed_detector_v2.zip`, all on a normal CPU.
-It does not train and does not change the saved training run: step 4 can still finish it later with a GPU.
+It does not train and does not change the saved training run.
 
 **How:** Runtime -> Change runtime type -> **CPU** -> Save, then Runtime -> **Run all**. Allow Google Drive
 access. Takes about 30-60 minutes; keep the laptop awake. When it prints **ALL DONE**, download
-`weed_detector_v2.zip` from Drive (MyDrive/weedbot) and tell Claude.
+`weed_detector_v2.zip` from Drive (MyDrive/weedbot) and send it to Claude. The first zip you send Claude is the
+final v2 model, also when it comes from this notebook: do not run step 4 or 4b again after that.
 '''),
     code(MOUNT + '''
 assert os.path.exists(DRIVE + '/runs/v2/weights/best.pt'), 'No saved v2 model yet: run step 4 (04_v2_label_and_train) first'
 '''),
 ] + module_cells() + [
-    code('!pip -q install ultralytics'),
+    code('!pip -q install ultralytics==8.4.218'),
     code(MERGE_V2),
     code(fill(FINAL, RUN_NAME='v2')),
     evaluate('v2'),

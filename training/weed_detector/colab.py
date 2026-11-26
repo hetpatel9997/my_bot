@@ -12,6 +12,7 @@ import shutil
 import time
 import urllib.parse
 import zipfile
+import zlib
 
 from . import build as B
 from . import sources as S
@@ -58,15 +59,30 @@ def _zip_to_drive(folder, tmp_base, target):
     os.replace(target + '.part', target)
 
 
+def zip_ok(path):
+    """True when the zip at `path` opens and every file in it reads back with the right checksum."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            return z.testzip() is None
+    except (zipfile.BadZipFile, zlib.error, EOFError, OSError):
+        return False
+
+
 def label_part(source, work_dir, drive_dir, teacher_fn):
     """Turn dataset_parts/<source>_images.zip (photos without boxes, from step 3) into dataset_parts/<source>.zip
     with teacher boxes. `teacher_fn()` builds the teacher; it is only called when some photo is not in the
-    cache dataset_parts/teacher_<source>.jsonl on Drive, so a stopped run continues where it stopped."""
+    cache dataset_parts/teacher_<source>.jsonl on Drive, so a stopped run continues where it stopped.
+    A labelled zip that is already on Drive is tested first: a damaged one (Colab stopped while it was copied
+    to Drive) is made again, from the cache when every photo is in it (minutes, no GPU work)."""
     from . import teacher as T
     target = part_zip(drive_dir, source)
     if os.path.exists(target):
-        print(f'{source}: already labelled on Drive, skipped')
-        return {'skipped': True}
+        if zip_ok(target):
+            print(f'{source}: already labelled on Drive, skipped')
+            return {'skipped': True}
+        print(f'{source}: {target} is damaged (Colab stopped while it was copied to Drive): '
+              'labelling again from the saved teacher boxes')
+        os.remove(target)
     images_zip = part_zip(drive_dir, f'{source}_images')
     if not os.path.exists(images_zip):
         raise RuntimeError(f'{images_zip} is missing: run step 3 (03_v2_collect_photos) until it prints DONE')
@@ -99,19 +115,38 @@ class _LazyTeacher:
         return self._teacher.detect(image, queries, min_score)
 
 
+def _how_to_make(drive_dir, source, v2):
+    """What the owner runs to (re)make dataset part `source` (for merge_parts' messages). `v2`: the merge is
+    version 2's, where step 2 (02_train) must not run again: it would change runs/v1, which v2 starts from."""
+    if source in TEACHER_SOURCES:
+        step4 = 'step 4 (04_v2_label_and_train)'
+        if not os.path.exists(part_zip(drive_dir, f'{source}_images')):
+            return f'run step 3 (03_v2_collect_photos) until it prints DONE, then {step4}'
+        return f'run {step4}: it labels the photos from step 3'
+    return ('run step 1 (01_build_dataset) until it prints DONE, then run this notebook again'
+            + (' (not step 2: v1 is already trained)' if v2 else ''))
+
+
 def merge_parts(drive_dir, out_dir, sources=EXPECTED_SOURCES):
     """Unzip the finished parts of `sources` (other parts on Drive, e.g. an old cropsweeds.zip, are ignored)
-    into one dataset folder and write data.yaml. Returns summary(out_dir)."""
+    into one dataset folder and write data.yaml. Returns summary(out_dir). A missing or damaged part raises
+    with the notebook that makes it: step 1 for v1's parts, step 3 / 4 for v2's."""
+    v2 = any(s in TEACHER_SOURCES for s in sources)
     missing = [s for s in sources if not os.path.exists(part_zip(drive_dir, s))]
     if missing:
-        raise RuntimeError(f'missing dataset parts {missing}: run step 1 (01_build_dataset) until it prints DONE')
+        raise RuntimeError(f'missing dataset parts {missing}: '
+                           + '; '.join(f'{s}: {_how_to_make(drive_dir, s, v2)}' for s in missing))
     os.makedirs(out_dir, exist_ok=True)
     for s in sources:
         try:
             with zipfile.ZipFile(part_zip(drive_dir, s)) as f:
                 f.extractall(out_dir)
-        except zipfile.BadZipFile:
-            raise RuntimeError(f'{part_zip(drive_dir, s)} is damaged: delete it in Google Drive and run step 1 again')
+        except (zipfile.BadZipFile, zlib.error, EOFError):
+            if s in TEACHER_SOURCES:
+                fix = 'run step 4 (04_v2_label_and_train) again: it labels this part again from the saved teacher boxes'
+            else:
+                fix = 'delete it in Google Drive, then ' + _how_to_make(drive_dir, s, v2)
+            raise RuntimeError(f'{part_zip(drive_dir, s)} is damaged: {fix}')
     B.write_yaml(out_dir)
     return summary(out_dir)
 

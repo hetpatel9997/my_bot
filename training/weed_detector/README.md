@@ -20,7 +20,7 @@ gravel, soil and lawn. Then the small model learns again from all of them, start
 - Keep ALL the v1 files in Google Drive (`MyDrive/weedbot/`: `dataset_parts/` and `runs/v1/`). Version 2
   reuses v1's photos and starts from v1's model. Do not delete anything in `MyDrive/weedbot/` until Claude
   says v2 is finished.
-- Google Drive needs about **4.5 GB more** free space (keep 6 GB free to be safe). Check it at
+- Google Drive needs about **5.3 GB more** free space (keep 6 GB free to be safe). Check it at
   https://drive.google.com -> Storage (bottom left). A free Google account has 15 GB in all.
 
 **Step 3 - collect the new photos (`03_v2_collect_photos.ipynb`, CPU)**
@@ -35,16 +35,22 @@ gravel, soil and lawn. Then the small model learns again from all of them, start
 1. File -> Upload notebook -> pick `04_v2_label_and_train.ipynb`.
 2. Runtime -> Change runtime type -> **T4 GPU** -> Save.
 3. Runtime -> **Run all**, allow Drive access.
-4. It does two jobs, one after the other. First the teacher draws the boxes ("labelling", about 1.5-3 hours),
-   then the small model trains (about 4-5 hours; one "round" is one pass over all the photos, 50 rounds at
-   most). That is more GPU time than free Colab gives in one day, so **expect two days**.
+4. It does two jobs, one after the other. First the teacher draws the boxes ("labelling", about 3-4.5 hours
+   of T4 time), then the small model trains (about 4-5 hours; one "round" is one pass over all the photos, 50
+   rounds at most). That is more GPU time than free Colab gives in one day, so **plan for two to three days**
+   (the first day is mostly labelling).
+   The install cell near the top may print red warnings about other packages ("dependency conflicts"): that is
+   expected, ignore them. If Colab asks you to restart the session, click Restart session, then **Run all** again.
 5. **When Colab stops** ("runtime disconnected", or a message about GPU usage limits): come back later
    (often the next day), open `04_v2_label_and_train.ipynb` again and press **Run all**. Nothing is lost:
    finished labelling is kept on Drive (it prints `inat_weed: already labelled on Drive, skipped`, and the same
-   for `inat_keep` and `background`), and training continues from its last round. Do this as often as needed.
+   for `inat_keep` and `background`; a part that Colab cut off while saving it prints `... is damaged ...:
+   labelling again from the saved teacher boxes` and is made again in minutes), and training continues from its
+   last round. After each restart it first unpacks and prepares the photos for about 10-20 minutes before
+   training goes on: that is normal, it is not stuck. Do this as often as needed.
    If Colab says the GPU is not available, try again later (do not switch to CPU).
 6. When it prints `ALL DONE -> MyDrive/weedbot/weed_detector_v2.zip`, open Google Drive -> `weedbot` ->
-   download `weed_detector_v2.zip` (in Chrome on the VM it lands in `~/Downloads`). Tell Claude.
+   download `weed_detector_v2.zip` (in Chrome on the VM it lands in `~/Downloads`). Then see "After training".
 
 If the first cell stops with `v1 must be trained first; keep the v1 files on Drive`, the v1 model is
 missing from Drive (`runs/v1/weights/best.pt`): tell Claude. If it stops with `... is missing: run step 3
@@ -55,9 +61,29 @@ missing from Drive (`runs/v1/weights/best.pt`): tell Claude. If it stops with `.
 1. File -> Upload notebook -> pick `04b_v2_finish_without_gpu.ipynb`.
 2. Runtime -> Change runtime type -> **CPU** -> Save.
 3. Runtime -> **Run all**, allow Drive access. About 30-60 minutes. It does not train: it takes the best model
-   step 4 already saved, tests it and makes the Pi versions. The saved training run is not changed, so
-   step 4 can still finish the last rounds later when a GPU is free (that writes a new zip).
-4. When it prints `ALL DONE -> MyDrive/weedbot/weed_detector_v2.zip`, download it as in step 4 and tell Claude.
+   step 4 already saved, tests it and makes the Pi versions. The saved training run is not changed.
+4. When it prints `ALL DONE -> MyDrive/weedbot/weed_detector_v2.zip`, download it as in step 4. Then see
+   "After training": this zip is the final model, so do not run step 4 again afterwards.
+
+**After training - send the zip to Claude**
+1. Send Claude `weed_detector_v2.zip`. **The first zip you send is the final v2 model**, also when it came from
+   step 4b. Do not run step 4 or 4b again after that: step 4 could finish the last rounds and write a new zip
+   over it, but the backyard check below runs only once, so the model must be fixed before it runs.
+2. Claude's job, on the VM (nothing for you to do): unzip it to `~/weedbot_data/models/weed_detector_v2/` (the
+   check needs `best.pt` and `best_ncnn_model/` there), then, from `~/dev_ws/src/my_bot/training`, run the
+   backyard check ONCE: `env -u PYTHONPATH ~/weedbot_data/venv_yolo/bin/python -m weed_detector.backyard_check
+   check ~/weedbot_data/models/weed_detector_v2 ~/weedbot_data/backyard_photos/reference/reference.json`.
+3. Claude tells you the result of the three checks (v2 design, "Checks before v2 goes on the robot"):
+   - check 1, your two backyard photos: the command above, PASS needed on both photos;
+   - check 2, public test photos, from `metrics_per_source.json` in the zip: weed recall at most 0.05 below v1
+     (`per_source_test` -> `cottonweed` -> `recall` at least 0.764, v1 0.814; `grassweeds` at least 0.663,
+     v1 0.713) and keep precision at least 0.70, read from **`per_source_test` -> `openimages` -> `precision`**
+     (v1 0.703): the only keep number measured on human-drawn boxes alone. The overall
+     `overall_test` -> `per_class` -> `keep` -> `precision` (v1 0.742) also counts the teacher-labelled test
+     photos, so it is only reported, as is keep recall (v1 0.53);
+   - check 3, the Pi version gives the same boxes as `best.pt`: in the backyard check's report.
+   If check 1 fails, v2 is not used; Claude and you decide the next step. Passing does not mean spraying: the
+   robot only looks at first.
 
 ### Version 1 (done 2026-11-25): steps 1, 2 and 2b
 **Step 1 - collect the photos (`01_build_dataset.ipynb`)**
@@ -124,6 +150,10 @@ missing from Drive (`runs/v1/weights/best.pt`): tell Claude. If it stops with `.
   it on in-between models would be tuning on the owner's photos). Same venv and folder as above,
   `-m weed_detector.backyard_check ...`.
 - `teacher_check.py` and `backyard_check.py` are not pasted into the notebooks (not in `make_notebooks.py` MODULES).
+- Versions: notebook 04 installs transformers 4.57.6 only when another version is there (the teacher's prompts
+  and thresholds were tuned with it; 5.x pads photos black instead of grey, which moves the scores a little;
+  `teacher.py` calls the image processor's post-processing, which exists in 4.57 and 5.x, so a missed pin does
+  not crash). 04 and 04b pin ultralytics 8.4.218 (v1's version; `train.run_finished` depends on 8.4 behaviour).
 - After any change: `python3 training/weed_detector/make_notebooks.py` (regenerates all six notebooks; the v1
   notebooks' cells stay the same apart from the pasted modules).
 - Tests: `python3 -m pytest test/weed_detector -q` (and the same with the venv's python). End-to-end check on the
