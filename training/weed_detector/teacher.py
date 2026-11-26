@@ -16,15 +16,29 @@ from collections import Counter, namedtuple
 from . import sources as S
 
 TEACHER_MODEL = 'google/owlv2-base-patch16-ensemble'
+# Prompts and thresholds set by the VM sample check 2026-11-25 (teacher_check.py on 39 iNaturalist weed, 39 garden-plant
+# and 30 Open Images ground photos; numbers in the v2 design doc, "Teacher settings from the sample check").
 QUERIES = {
-    'weed': {'plant': ['a weed', 'a small plant', 'a plant with small leaves'],
+    # 'a plant with small leaves' -> 'a plant with reddish stems and small leaves': the old query drew whole-picture
+    # boxes on any foliage (18 of the 22 'close-up' drops) and the one wrong kept weed box (on a black pot); the new
+    # one is the strongest query on the spurge photos (spurge = the yard's main weed). Distractors unchanged: extra
+    # grass distractors ('a blade of grass', 'a tuft of grass') stole the narrow-leaved plantain rosettes.
+    'weed': {'plant': ['a weed', 'a small plant', 'a plant with reddish stems and small leaves'],
              'distract': ['grass', 'a stone', 'soil', 'a human hand', 'a shoe', 'a flower', 'a shrub']},
+    # unchanged: 'a flower' stays a PLANT query (keep boxes are mostly blossoms / flower clusters). Moving it to the
+    # distractors to get whole-plant boxes gave worse boxes (part of a bush, a pot with leaves) and fewer photos.
     'keep': {'plant': ['a flower', 'a shrub', 'a flowering plant', 'a bush'],
              'distract': ['grass', 'a stone', 'soil', 'a human hand', 'a shoe', 'a weed', 'a flower pot']},
-    'background': {'plant': ['a weed', 'a small plant', 'a flower', 'a shrub'],
+    # + 'trees', 'vegetation': 4 of 23 kept ground photos showed trees / a scrub-covered hillside; these two queries
+    # drop the forest, scrub and cliff-top vegetation photos (lawn grass stays below the threshold).
+    'background': {'plant': ['a weed', 'a small plant', 'a flower', 'a shrub', 'trees', 'vegetation'],
                    'distract': ['grass', 'a stone', 'soil', 'gravel']},
 }
-THRESHOLDS = {'weed': 0.15, 'keep': 0.15, 'background': 0.12}
+# weed 0.15 unchanged: of the 15 kept weed boxes scoring 0.15-0.20 only one was loose; raising it loses real plants.
+# keep 0.15 -> 0.25: the boxes scoring 0.15-0.24 were extra blossoms or wrong (stems + a person's legs); every kept
+# keep photo still has its main box (0.28-0.74). background 0.12 -> 0.15: needed with 'vegetation', which scores
+# 0.12-0.14 on bare rock / soil photos; every photo dropped at 0.12 before is still dropped.
+THRESHOLDS = {'weed': 0.15, 'keep': 0.25, 'background': 0.15}
 NMS_IOU = 0.5
 MIN_BOX_AREA = 0.003     # share of the image; smaller boxes teach nothing
 MAX_BOX_AREA = 0.6       # a plant filling more than this is a close-up, not a plant in a scene

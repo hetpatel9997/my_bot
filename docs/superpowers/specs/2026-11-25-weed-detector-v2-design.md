@@ -165,3 +165,69 @@ with reasons), notebook layout, caching format, NMS details, hyperparameters bey
   standing height; the robot camera is 0.19 m high, tilted 35 deg down. B closes this gap.
 - Keep plants are generic, not the owner's own shrubs (unchanged from v1; keep zones + look-only).
 - Colab GPU limits stretch the work over several days.
+
+## Teacher settings from the sample check (2026-11-25)
+Done on the VM CPU with `training/weed_detector/teacher_check.py`, on public photos only (the owner's photos
+were not used or opened). Sample: `inat_weed` 39 = 3 research-grade photos x 13 taxa, `inat_keep` 39 = 3
+cultivated (`captive=true`, any grade) photos x 13 taxa (iNaturalist returns the oldest open-licence
+observations first), `background` 30 = the first 30 Open Images ground photos by image id. Every photo on
+every contact sheet was judged by eye (`~/weedbot_data/teacher_check/sheets/`, pass 1 in `pass1/`).
+- Pass 1: the starting values, real teacher, all 108 photos. OWLv2's image features were saved in the same
+  run. A query's score on a box does not depend on the other queries (only which query a box is credited to
+  does), so other prompt / threshold sets were then scored offline from those features. That reproduced the
+  pass-1 cache to 4e-6 on all 2,278 detections, so nothing was guessed.
+- Pass 2: the final values, real teacher again (new calls for weed + background; keep came from the cache,
+  since only its threshold changed). The verdicts matched the offline prediction photo for photo.
+
+Final values (`teacher.py`; NMS_IOU 0.5, MIN_BOX_AREA 0.003, MAX_BOX_AREA 0.6 unchanged):
+| kind | plant queries | distractors | threshold |
+|---|---|---|---|
+| weed | a weed, a small plant, a plant with reddish stems and small leaves | grass, a stone, soil, a human hand, a shoe, a flower, a shrub | 0.15 |
+| keep | a flower, a shrub, a flowering plant, a bush | grass, a stone, soil, a human hand, a shoe, a weed, a flower pot | 0.25 |
+| background | a weed, a small plant, a flower, a shrub, trees, vegetation | grass, a stone, soil, gravel | 0.15 |
+
+Results. Right = every box sits on a plant of the photo's class. Wrong = some box sits mainly on something
+else. Missed = a clearly visible plant of the class has no box (the rest of a mat or carpet does not count).
+| source | pass | kept / photos | dropped | boxes | right / wrong | missed |
+|---|---|---|---|---|---|---|
+| inat_weed | 1 | 10 / 39 | close-up 22, no plant 7 | 21 | 9 / 1 | in 3 |
+| inat_weed | 2 | 11 / 39 | close-up 15, no plant 13 | 34 | 10 / 0, + 1 loose | in 2 |
+| inat_keep | 1 | 7 / 39 | close-up 27, no plant 5 | 14 | 6 / 1 | - |
+| inat_keep | 2 | 7 / 39 | close-up 27, no plant 5 | 8 | 7 / 0 | - |
+| background | 1 | 23 / 30 | plant found 7 | - | 4 of 23 kept show a plant | - |
+| background | 2 | 19 / 30 | plant found 11 | - | 1 of 19 kept shows a plant | - |
+Pass 1 wrong: weed, a box on a black pot while the weed mat below was unboxed; keep, a second box on stems and a
+person's legs. Pass 2, weed: the loose box is a strip at the bottom of a black-medic photo (medic leaves with grass
+blades, bark and soil); the missed plants are the main knotweed body (credited to the distractor "a shrub") and a
+few henbit plants. No kept weed box sits on grass alone. Two boxes include grass blades around the weed: a ribwort
+plantain rosette in a lawn, and the strip above. The one background photo with a plant is a grassy airstrip with a
+distant tree line. The background targets are met: <= 1 in 10 kept photos shows a plant; the 80 % right target is
+met for weed (91 %, 100 % if the loose box counts) and keep (100 %).
+
+Changes (also commented in `teacher.py`):
+- weed: "a plant with small leaves" -> "a plant with reddish stems and small leaves". The old query put
+  whole-picture boxes on any foliage (18 of the 22 close-up drops) and drew the one wrong weed box. The new query
+  scores best on the spurge photos.
+- keep threshold 0.15 -> 0.25: the boxes scoring 0.15-0.24 were extra blossoms or the wrong stems/legs box; each
+  kept photo keeps its main box (0.28-0.74).
+- background: + "trees", "vegetation", threshold 0.12 -> 0.15. They drop the forest, scrub-hillside and
+  cliff-top photos. "vegetation" scores 0.12-0.14 on bare rock and soil, hence 0.15. Every photo dropped before
+  is still dropped.
+- Builder-check decision changed: a `keep` box is usually a blossom or flower cluster, not the whole plant.
+  "a flower" as a keep distractor (to force whole-plant boxes) gave worse boxes (part of a bush, a pot with
+  leaves) and 4 kept photos instead of 7. Whole shrubs mostly fill the iNaturalist photo and are dropped as
+  close-ups.
+Tried and not taken: "a small weed plant" (more close-ups, 8-9 kept), fewer distractors (more close-ups, 6-9 kept),
+"a blade of grass" / "a tuft of grass" as distractors (they took the narrow plantain rosettes), weed threshold
+0.20 (9 of 9 right, but it removes 15 boxes scoring 0.15-0.20, 14 of them correct: more unboxed plants), MAX_BOX_AREA 0.65 (only 1 of the 15
+close-up drops lies between 0.6 and 0.65).
+
+Open points (not blocking, for the owner / the Colab plan):
+- Yield is low: weed 28 %, keep 18 %, background 63 %. At these rates the planned ~8,000 / ~3,000 / ~2,000
+  photos give roughly 2,200 / 540 / 1,270 labelled images. Spurge: 1 of 6 kept (the others are close-ups or
+  unboxed mats). Most drops are the close-up rule doing its job, but it also drops some photos with a correct box
+  (a single spotted spurge boxed at 0.90 covering 62 %). If more images are wanted, ask for more photos per taxon
+  (keep especially) rather than loosening the rules.
+- Keep foliage outside the blossom box stays unlabelled (daylily, marigold), so the model sees keep leaves as
+  background. Keep zones and look-only still cover this.
+- The sample is small (11 + 7 + 19 kept photos judged): one photo moves a rate by 5-14 points.
