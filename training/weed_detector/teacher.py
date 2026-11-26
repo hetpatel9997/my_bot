@@ -63,6 +63,12 @@ def require_transformers():
     import importlib.metadata
     import sys
     importlib.invalidate_caches()                    # forget cached package listings from before a pip install
+    # Python 3.10's invalidate_caches() leaves importlib.metadata's own listing cache, which is keyed by the
+    # folder's modification time; a pip install within one clock tick of the last check kept the old answer.
+    # (3.10 defines it without @classmethod, so call it on an instance; that also works on 3.12.)
+    finder = getattr(importlib.metadata, 'MetadataPathFinder', None)
+    if finder is not None and hasattr(finder, 'invalidate_caches'):
+        finder().invalidate_caches()
     try:
         installed = importlib.metadata.version('transformers')
     except importlib.metadata.PackageNotFoundError:
