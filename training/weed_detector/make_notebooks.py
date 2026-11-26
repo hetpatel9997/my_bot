@@ -1,14 +1,18 @@
-"""make_notebooks.py - write the two self-contained Colab notebooks from the tested modules in this folder.
+"""make_notebooks.py - write the self-contained Colab notebooks from the tested modules in this folder.
 
+v1: 01_build_dataset, 02_train, 02b_finish_without_gpu. v2: 03_v2_collect_photos, 04_v2_label_and_train,
+04b_v2_finish_without_gpu.
 Why self-contained: the owner uploads them to Colab from the VM; nothing has to be pushed to GitHub first.
-Run after changing sources.py / build.py / colab.py / train.py:
+Run after changing sources.py / build.py / teacher.py / colab.py / train.py:
     python3 training/weed_detector/make_notebooks.py
 """
 import json
 import os
+import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODULES = ['__init__.py', 'sources.py', 'build.py', 'teacher.py', 'colab.py', 'train.py']
+GPU_NOTEBOOKS = ('02_train.ipynb', '04_v2_label_and_train.ipynb')
 
 
 def md(text):
@@ -18,6 +22,11 @@ def md(text):
 def code(text):
     return {'cell_type': 'code', 'metadata': {}, 'execution_count': None, 'outputs': [],
             'source': text.strip('\n').splitlines(True)}
+
+
+def fill(template, **subs):
+    """Put each value in place of its UPPER_CASE key in `template`, in one pass (a value is never filled again)."""
+    return re.sub('|'.join(rf'\b{k}\b' for k in subs), lambda m: subs[m.group(0)], template)
 
 
 def module_cells():
@@ -36,6 +45,12 @@ import os, sys
 DRIVE = '/content/drive/MyDrive/weedbot'
 os.makedirs(DRIVE, exist_ok=True)
 sys.path.insert(0, '/content')
+'''
+
+GPU_CHECK = '''
+import torch
+assert torch.cuda.is_available(), 'No GPU: Runtime -> Change runtime type -> T4 GPU (if none is free, try later)'
+print('GPU:', torch.cuda.get_device_name(0))
 '''
 
 NB1 = [
@@ -87,26 +102,63 @@ info = C.summary(DS)
 print(info)
 '''
 
+MERGE_V2 = '''
+from weed_detector import colab as C, train as T
+DS = '/content/weeds_ds_v2'
+info = C.merge_parts(DRIVE, DS, sources=C.V2_SOURCES)   # v1's three parts + the three labelled v2 parts
+print('repair of parts from an older step 1:', C.repair_after_merge(DS))   # no-op for current parts
+print('Open Images pictures with a box over 40 % of the picture, removed:', C.drop_big_box_images(DS))
+info = C.summary(DS)
+print(info)
+'''
+
 EVALUATE = '''
 import json
 per_source = T.evaluate_per_source(best, DS, split='test', imgsz=640)
-overall = T.evaluate_all(best, DS + '/data.yaml', DRIVE + '/runs/v1', split='test', imgsz=640)
+overall = T.evaluate_all(best, DS + '/data.yaml', DRIVE + '/runs/RUN_NAME', split='test', imgsz=640)
 print(json.dumps({'overall_test': overall, 'per_source_test': per_source}, indent=1))
 json.dump({'overall_test': overall, 'per_source_test': per_source, 'dataset': info},
-          open(DRIVE + '/runs/v1/metrics_per_source.json', 'w'), indent=1)
+          open(DRIVE + '/runs/RUN_NAME/metrics_per_source.json', 'w'), indent=1)
 '''
 
 
-def package(weights_dir, note):
+def evaluate(run='v1'):
+    """The test cell for the training run `run` (MyDrive/weedbot/runs/<run>)."""
+    return code(fill(EVALUATE, RUN_NAME=run))
+
+
+# README.txt of the result zip: (first line, sources and licence lines), as Python expressions for the cell.
+README_V1 = (
+    r"""'WeedBot weed/keep detector v1 (YOLO11n, classes 0 weed, 1 keep, imgsz 640).\n'""",
+    r"""'Trained on: CottonWeedDet12 (CC BY-NC 4.0, Lu et al., Zenodo 10.5281/zenodo.7535814), Roboflow-100 grass-weeds '
+    '(CC BY 4.0), Open Images V7 (CC BY 2.0 images, CC BY 4.0 boxes).\n'
+    'Non-commercial use (CottonWeedDet12 licence).\n'""")
+README_V2 = (
+    r"""'WeedBot weed/keep detector v2 (YOLO11n fine-tuned from v1, classes 0 weed, 1 keep, imgsz 640).\n'""",
+    r"""'Trained on:\n'
+    '- CottonWeedDet12 (CC BY-NC 4.0, Lu et al., Zenodo 10.5281/zenodo.7535814)\n'
+    '- Roboflow-100 grass-weeds (CC BY 4.0)\n'
+    '- Open Images V7 (CC BY 2.0 images, CC BY 4.0 boxes): keep plants and the "nothing here" ground photos\n'
+    '- iNaturalist photos: each photo has its own licence (CC0, CC BY or CC BY-NC); the observer and the URL of '
+    'every photo are in manifest_inat_weed.csv / manifest_inat_keep.csv\n'
+    'The boxes on the iNaturalist photos were drawn by OWLv2 (google/owlv2-base-patch16-ensemble, Apache 2.0), '
+    'which also checked that the ground photos show no plant.\n'
+    'Non-commercial use (CottonWeedDet12 and the CC BY-NC photos).\n'""")
+
+
+def package(weights_dir, note, run='v1', zip_name='weed_detector_v1', readme=README_V1):
     """The export + zip cell. `weights_dir`: Python expression for the folder holding best.pt (exports land
-    next to it); `note`: Python expression for an extra README line."""
-    return code('''
+    next to it); `note`: Python expression for an extra README line; `run`: the training run (runs/<run> on
+    Drive); `zip_name`: the result, MyDrive/weedbot/<zip_name>.zip; `readme`: (first line, sources and licence
+    lines) of its README.txt, as Python expressions."""
+    title, sources = readme
+    return code(fill('''
 import glob, shutil
 exported = T.export(best, imgsz=640, formats=('onnx', 'ncnn'))
 print('exported:', exported)
-out = '/content/weed_detector_v1'
+out = '/content/ZIP_NAME'
 os.makedirs(out, exist_ok=True)
-run = DRIVE + '/runs/v1'
+run = DRIVE + '/runs/RUN_NAME'
 W = WEIGHTS_DIR
 for f in ['results.csv', 'confusion_matrix.png', 'results.png', 'metrics_per_source.json', 'args.yaml']:
     if os.path.exists(os.path.join(run, f)):
@@ -122,16 +174,22 @@ if os.path.isdir(ncnn):
 for src in sorted(glob.glob(DS + '/manifest_*.csv')):
     shutil.copy(src, out)
 open(os.path.join(out, 'README.txt'), 'w').write(
-    'WeedBot weed/keep detector v1 (YOLO11n, classes 0 weed, 1 keep, imgsz 640).\\n' + NOTE +
-    'Trained on: CottonWeedDet12 (CC BY-NC 4.0, Lu et al., Zenodo 10.5281/zenodo.7535814), Roboflow-100 grass-weeds '
-    '(CC BY 4.0), Open Images V7 (CC BY 2.0 images, CC BY 4.0 boxes).\\n'
-    'Non-commercial use (CottonWeedDet12 licence).\\n')
-shutil.make_archive(DRIVE + '/weed_detector_v1', 'zip', out)
-size = round(os.path.getsize(DRIVE + '/weed_detector_v1.zip') / 1e6, 1)
+    README_TITLE + NOTE +
+    README_SOURCES)
+shutil.make_archive(DRIVE + '/ZIP_NAME', 'zip', out)
+size = round(os.path.getsize(DRIVE + '/ZIP_NAME.zip') / 1e6, 1)
 from google.colab import drive
 drive.flush_and_unmount()          # make sure the zip is really written to Google Drive
-print('ALL DONE -> MyDrive/weedbot/weed_detector_v1.zip', size, 'MB')
-'''.replace('WEIGHTS_DIR', weights_dir).replace('NOTE', note))
+print('ALL DONE -> MyDrive/weedbot/ZIP_NAME.zip', size, 'MB')
+''', WEIGHTS_DIR=weights_dir, NOTE=note, RUN_NAME=run, ZIP_NAME=zip_name, README_TITLE=title, README_SOURCES=sources))
+
+
+FINAL = '''
+best, stop = T.final_weights(DRIVE + '/runs', 'RUN_NAME', '/content/final')
+print(f"training stopped after round {stop['last_epoch']} of {stop['epochs']}; best model is from round {stop['best_epoch']}")
+'''
+STOPPED_NOTE = ("f\"Training stopped after round {stop['last_epoch']} of {stop['epochs']} (Colab GPU limit); \"\n    "
+                "f\"best.pt is the best round so far ({stop['best_epoch']}).\\n\"")
 
 NB2 = [
     md('''
@@ -145,11 +203,7 @@ happens, open this notebook again and press **Run all** - it continues from the 
 (checkpoints are on Drive). If Colab says the GPU is not available, try again later (do not switch to CPU).
 When it prints **ALL DONE**, download `weed_detector_v1.zip` from Drive (MyDrive/weedbot) and tell Claude.
 '''),
-    code(MOUNT + '''
-import torch
-assert torch.cuda.is_available(), 'No GPU: Runtime -> Change runtime type -> T4 GPU (if none is free, try later)'
-print('GPU:', torch.cuda.get_device_name(0))
-'''),
+    code(MOUNT + GPU_CHECK),
 ] + module_cells() + [
     code('!pip -q install ultralytics'),
     code(MERGE),
@@ -157,7 +211,7 @@ print('GPU:', torch.cuda.get_device_name(0))
 best = T.train(DS + '/data.yaml', DRIVE + '/runs', name='v1', epochs=100, imgsz=640)
 print('best model:', best)
 '''),
-    code(EVALUATE),
+    evaluate('v1'),
     package("run + '/weights'", "''"),
 ]
 
@@ -179,20 +233,137 @@ assert os.path.exists(DRIVE + '/runs/v1/weights/best.pt'), 'No saved model yet: 
 ] + module_cells() + [
     code('!pip -q install ultralytics'),
     code(MERGE),
-    code('''
-best, stop = T.final_weights(DRIVE + '/runs', 'v1', '/content/final')
-print(f"training stopped after round {stop['last_epoch']} of {stop['epochs']}; best model is from round {stop['best_epoch']}")
+    code(fill(FINAL, RUN_NAME='v1')),
+    evaluate('v1'),
+    package("'/content/final'", STOPPED_NOTE),
+]
+
+NB3 = [
+    md('''
+# WeedBot weed detector v2 - step 3: collect the new photos
+Downloads ~20,000 public photos that have no boxes yet: weeds (~12,000) and garden plants (~6,000) from
+iNaturalist, and ~2,000 "nothing here" ground photos (gravel, soil, lawn) from Open Images. They are stored in
+your Google Drive (`MyDrive/weedbot/dataset_parts/`): most of the ~4.5 GB that version 2 needs (keep 6 GB free
+to be safe). Step 4 draws the boxes and trains.
+
+**How:** Runtime -> Change runtime type -> **CPU** (no GPU needed here: it keeps your free GPU time for step 4),
+then Runtime -> **Run all**. Allow Google Drive access when asked. Takes roughly 1-3 hours.
+Keep the laptop awake (lid open) while it runs. If it stops, just press **Run all** again: finished parts
+are skipped. Keep the v1 files on Drive: version 2 uses them.
+When it prints **DONE: all 3 photo parts are on Drive**, go to step 4 (`04_v2_label_and_train.ipynb`).
+
+Licences: iNaturalist photos CC0 / CC BY / CC BY-NC (each photo's licence, author and link are saved with it),
+Open Images V7 CC BY 2.0.
 '''),
-    code(EVALUATE),
-    package("'/content/final'",
-            "f\"Training stopped after round {stop['last_epoch']} of {stop['epochs']} (Colab GPU limit); \"\n    "
-            "f\"best.pt is the best round so far ({stop['best_epoch']}).\\n\""),
+    code(MOUNT),
+] + module_cells() + [
+    code('!pip -q install huggingface_hub'),
+    code('''
+from weed_detector import colab as C, sources as S
+WORK = '/content/work'
+C.build_part('inat_weed', lambda: C.inat_items_from_api(S.INAT_WEED_TAXA, 'inat_weed', quality_grade='research',
+             max_per_taxon=None), WORK, DRIVE, zip_name='inat_weed_images', workers=8)
+'''),
+    code('''
+C.build_part('inat_keep', lambda: C.inat_items_from_api(S.INAT_KEEP_TAXA, 'inat_keep', quality_grade=None, captive=True,
+             max_per_taxon=None), WORK, DRIVE, zip_name='inat_keep_images', workers=8)
+'''),
+    code('''
+C.build_part('background', lambda: C.background_items_from_oi(WORK + '/oi', max_images=2000), WORK, DRIVE,
+             zip_name='background_images', workers=8)
+'''),
+    code('''
+parts = [s + '_images' for s in C.TEACHER_SOURCES]
+done = [p for p in parts if os.path.exists(C.part_zip(DRIVE, p))]
+for p in done:
+    print(p, round(os.path.getsize(C.part_zip(DRIVE, p)) / 1e6), 'MB')
+from google.colab import drive
+drive.flush_and_unmount()          # make sure everything is really written to Google Drive
+print(f'DONE: all {len(done)} photo parts are on Drive, go to step 4' if len(done) == len(parts)
+      else f'Not all parts finished ({len(done)} of {len(parts)}): press Run all again')
+'''),
+]
+
+NB4 = [
+    md('''
+# WeedBot weed detector v2 - step 4: label the new photos, then train v2
+First a big model (OWLv2, the "teacher") draws a box around the plant in each photo from step 3 (about 1.5-3
+hours). Then the small detector is trained again, starting from v1, on all the photos (about 4-5 hours).
+The result goes to your Google Drive as `MyDrive/weedbot/weed_detector_v2.zip`.
+
+**How:** Runtime -> Change runtime type -> **T4 GPU**, then Runtime -> **Run all**. Allow Google Drive access.
+Keep the laptop awake. This needs more GPU time than free Colab gives in one day, so it usually takes two days.
+When Colab stops, come back later, open this notebook again and press **Run all**: finished labelling is kept
+on Drive (it prints `already labelled on Drive, skipped`) and training continues from its last round.
+If Colab says the GPU is not available, try again later (do not switch to CPU).
+When it prints **ALL DONE**, download `weed_detector_v2.zip` from Drive (MyDrive/weedbot) and tell Claude.
+If it stopped near the end (for example round 47 of 50) and Colab says "Cannot connect to GPU backend",
+use step 4b (`04b_v2_finish_without_gpu.ipynb`) instead.
+'''),
+    code(MOUNT + GPU_CHECK + '''
+assert os.path.exists(DRIVE + '/runs/v1/weights/best.pt'), 'v1 must be trained first; keep the v1 files on Drive'
+'''),
+] + module_cells() + [
+    code('''
+!pip -q install ultralytics
+# Colab already has transformers (for the teacher): installing it anyway could change Colab's torch
+import importlib.util
+if importlib.util.find_spec('transformers') is None:
+    !pip -q install transformers
+'''),
+    code('''
+import gc, json, torch
+from weed_detector import colab as C, teacher as TE
+
+
+def label_all():
+    """Boxes for each photo part. label_part builds the teacher only when some photo is not cached yet and drops
+    it when it returns: no name holds the teacher afterwards, so there is nothing left to del."""
+    return {s: C.label_part(s, '/content/work_v2', DRIVE, lambda: TE.Owlv2Teacher()) for s in C.TEACHER_SOURCES}
+
+
+labelled = label_all()          # a part already labelled on Drive is skipped
+gc.collect()
+torch.cuda.empty_cache()        # the teacher's GPU memory goes back for the training
+print(json.dumps(labelled, indent=1))
+'''),
+    code(MERGE_V2),
+    code('''
+base, _ = T.final_weights(DRIVE + '/runs', 'v1', '/content/v1_final')     # v2 starts from v1's best model
+best = T.train(DS + '/data.yaml', DRIVE + '/runs', name='v2', base=str(base), epochs=50, patience=15, imgsz=640)
+print('best model:', best)
+'''),
+    evaluate('v2'),
+    package("run + '/weights'", "''", run='v2', zip_name='weed_detector_v2', readme=README_V2),
+]
+
+NB4B = [
+    md('''
+# WeedBot weed detector v2 - step 4b: finish WITHOUT a GPU
+Use this only when step 4 stopped near the end (for example round 47 of 50) and Colab says
+"Cannot connect to GPU backend". It takes the best model step 4 already saved on your Drive, tests it,
+makes the Pi versions and writes `MyDrive/weedbot/weed_detector_v2.zip`, all on a normal CPU.
+It does not train and does not change the saved training run: step 4 can still finish it later with a GPU.
+
+**How:** Runtime -> Change runtime type -> **CPU** -> Save, then Runtime -> **Run all**. Allow Google Drive
+access. Takes about 30-60 minutes; keep the laptop awake. When it prints **ALL DONE**, download
+`weed_detector_v2.zip` from Drive (MyDrive/weedbot) and tell Claude.
+'''),
+    code(MOUNT + '''
+assert os.path.exists(DRIVE + '/runs/v2/weights/best.pt'), 'No saved v2 model yet: run step 4 (04_v2_label_and_train) first'
+'''),
+] + module_cells() + [
+    code('!pip -q install ultralytics'),
+    code(MERGE_V2),
+    code(fill(FINAL, RUN_NAME='v2')),
+    evaluate('v2'),
+    package("'/content/final'", STOPPED_NOTE, run='v2', zip_name='weed_detector_v2', readme=README_V2),
 ]
 
 
 def write(cells, name):
     nb = {'cells': cells, 'metadata': {'colab': {'provenance': []}, 'kernelspec': {'display_name': 'Python 3', 'name': 'python3'},
-                                       'language_info': {'name': 'python'}, 'accelerator': 'GPU' if name == '02_train.ipynb' else 'None'},
+                                       'language_info': {'name': 'python'}, 'accelerator': 'GPU' if name in GPU_NOTEBOOKS else 'None'},
           'nbformat': 4, 'nbformat_minor': 0}
     path = os.path.join(HERE, name)
     with open(path, 'w') as f:
@@ -204,3 +375,6 @@ if __name__ == '__main__':
     print(write(NB1, '01_build_dataset.ipynb'))
     print(write(NB2, '02_train.ipynb'))
     print(write(NB2B, '02b_finish_without_gpu.ipynb'))
+    print(write(NB3, '03_v2_collect_photos.ipynb'))
+    print(write(NB4, '04_v2_label_and_train.ipynb'))
+    print(write(NB4B, '04b_v2_finish_without_gpu.ipynb'))
