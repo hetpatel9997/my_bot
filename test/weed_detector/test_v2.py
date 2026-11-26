@@ -673,3 +673,78 @@ def test_check_reports_a_pi_version_mismatch(tmp_path):
     assert rep['fidelity']['pass'] is False and rep['fidelity']['max_conf_diff'] == pytest.approx(0.1)
     assert rep['pi_version_check'] == 'FAIL'
     assert len(rep['fidelity']['failed_views']) == 10
+
+
+# ---------------------------------------------------------------- unlisted zones: real weeds the teacher missed
+def test_backyard_verdict_box_in_unlisted_zone_is_neither_stone_nor_hit():
+    p = photo(10, 7)                                       # refs (i*100, 0, i*100+50, 50); refs 7, 8, 9 are missed
+    p['unlisted'] = [(950, 0, 1000, 50)]                   # a weed next to ref 9 with no reference box
+    box = (920, 0, 990, 50)                                # centre (955, 25) in the zone; IoU 0.33 with ref 9
+    p['weed'].append((box, 0.5))
+    p['all'].append((box, 0.5, 'weed'))
+    a = BC.backyard_verdict({'A': p})['photos']['A']
+    assert (a['hits'], a['stone_boxes'], a['on_unlisted'], a['pass']) == (7, 0, 1, True)
+    del p['unlisted']                                      # without the zone the same box is a hit
+    assert BC.backyard_verdict({'A': p})['photos']['A']['hits'] == 8
+
+
+def test_backyard_verdict_three_boxes_on_unlisted_zones_pass_the_stone_rule():
+    p = photo(10, 10, stone=2)                             # 2 real stone boxes: still allowed
+    p['unlisted'] = [(i * 100, 800, i * 100 + 40, 840) for i in range(3)]
+    p['all'] += [((i * 100 + 5, 805, i * 100 + 35, 835), 0.4, 'keep') for i in range(3)]
+    a = BC.backyard_verdict({'A': p})['photos']['A']
+    assert (a['stone_boxes'], a['on_unlisted'], a['pass']) == (2, 3, True)
+
+
+def test_backyard_verdict_box_only_overlapping_an_unlisted_zone_is_a_stone_box():
+    p = photo(10, 10)
+    p['unlisted'] = [(500, 500, 540, 540)]
+    p['all'].append(((520, 500, 600, 540), 0.5, 'weed'))  # centre (560, 520) outside the zone
+    a = BC.backyard_verdict({'A': p})['photos']['A']
+    assert (a['stone_boxes'], a['on_unlisted']) == (1, 0)
+
+
+def test_backyard_verdict_oversize_box_on_unlisted_zone_still_fails():
+    big = ((500, 600, 551, 700), 0.5, 'weed')               # 0.51 of a 100 x 100 view, centre in the zone
+    p = photo(10, 10, views=[(100, 100, [big])])
+    p['unlisted'] = [(500, 600, 600, 700)]
+    p['all'].append(big)
+    a = BC.backyard_verdict({'A': p})['photos']['A']
+    assert (a['on_unlisted'], a['oversize'], a['pass']) == (1, 1, False)
+
+
+def test_backyard_verdict_without_unlisted_is_unchanged():
+    cases = [photo(10, 7), photo(10, 6, stone=3), photo(10, 10, views=[(100, 100, [((0, 0, 51, 100), 0.5, 'weed')])])]
+    for p in cases:
+        before = BC.backyard_verdict({'A': p})
+        assert before == BC.backyard_verdict({'A': dict(p, unlisted=[])})
+        assert before['photos']['A']['on_unlisted'] == 0
+
+
+def test_check_uses_unlisted_json_next_to_the_reference(tmp_path):
+    # same scene as test_check_maps_views_scores_and_writes_report: IMG_0229's stone boxes are the tile-1 box
+    # (110, 10, 120, 20) and the tile-2 box (10, 60, 20, 70); a zone around the first one excuses only that one
+    ref = {'IMG_0229': [[8, 8, 22, 22], [110, 60, 120, 70], [22, 22, 40, 40]],
+           'IMG_0230': [[10, 10, 20, 20], [110, 10, 120, 20], [10, 60, 20, 70], [110, 60, 120, 70]]}
+    d = tmp_path / 'refdir'
+    d.mkdir()
+    rp, up = d / 'reference.json', d / 'unlisted.json'
+    rp.write_text(json.dumps(ref))
+    photos = str(make_photos(tmp_path))
+    run = lambda m: BC.check(str(tmp_path / m), str(rp), photos_dir=photos,          # noqa: E731
+                             predictors={'pt': FakeYolo(), 'ncnn': FakeYolo()})
+    plain = run('m1')
+    assert plain['unlisted'] is None and plain['unlisted_sha256'] is None
+    assert plain['verdict']['photos']['IMG_0229']['stone_boxes'] == 2
+    up.write_text(json.dumps({'IMG_0229': [[105, 5, 125, 25]], 'IMG_0230': []}))
+    rep = run('m2')
+    a = rep['verdict']['photos']['IMG_0229']
+    assert (a['stone_boxes'], a['on_unlisted'], a['hits']) == (1, 1, 2)
+    assert rep['unlisted'] == str(up) and rep['unlisted_sha256'] == hashlib.sha256(up.read_bytes()).hexdigest()
+    assert rep['reference_sha256'] == hashlib.sha256(rp.read_bytes()).hexdigest()
+    up.write_text(json.dumps({'IMG_0229': [[5, 5, 1, 1]], 'IMG_0230': []}))
+    with pytest.raises(SystemExit, match='unlisted'):
+        run('m3')
+    rp.unlink()
+    with pytest.raises(SystemExit, match='reference'):                               # unlisted alone: refused
+        run('m4')

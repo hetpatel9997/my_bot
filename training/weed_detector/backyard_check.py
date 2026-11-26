@@ -9,17 +9,22 @@ the builder check". Two commands, run from training/ in the training venv:
       (numbered boxes). Claude keeps, by eye, the candidates that sit on a weed and writes
       OUT_DIR/reference.json = {photo: [[x0, y0, x1, y1], ...]}, records its sha256 and makes it read-only.
       That file is FROZEN before any v2 output exists; this command refuses to run once it is there.
+      Next to it, OUT_DIR/unlisted.json (same format, also frozen) holds tight boxes on clearly visible weeds the
+      teacher found no candidate for (written by hand from the drawings).
 
   env -u PYTHONPATH ~/weedbot_data/venv_yolo/bin/python -m weed_detector.backyard_check check MODEL_DIR REFERENCE_JSON
       best.pt on 5 views per photo (4 quarter tiles + the whole photo), each letterboxed to 640 x 640 here, so
       best_ncnn_model (the Pi version) gets exactly the same pixels -> MODEL_DIR/backyard_check/report.json +
-      <photo>_tiles.jpg / <photo>_whole.jpg. Refuses to run without a valid reference file.
+      <photo>_tiles.jpg / <photo>_whole.jpg. Refuses to run without a valid reference file; uses unlisted.json
+      from the reference's folder when it exists.
 
 Every box is (x0, y0, x1, y1) in full-photo pixels after EXIF rotation, unless it says "640 input".
 PASS (check 1, strict reading): on EVERY photo at least 70 % of the reference boxes are hit by a quarter-tile
 `weed` box (conf >= 0.25, centre inside the reference box or IoU >= 0.3), at most 2 boxes (any class, any view,
 conf >= 0.25) on bare stones (centre in no reference box and IoU < 0.1 with all of them), and no box covering
-more than 50 % of the view it was found in. Check 3: every box >= 0.25 of one model has a box of the other model
+more than 50 % of the view it was found in. A box whose centre lies in an unlisted zone (a real weed without a
+reference box) is not on bare stone: it is neither a stone box nor a hit, counted as `on_unlisted`; the 50 % rule
+still applies to it. Check 3: every box >= 0.25 of one model has a box of the other model
 on the same view with the same class, IoU >= 0.9 and confidence within 0.05.
 Both models run at conf 0.20 = 0.25 - 0.05, so a box at 0.26 whose partner scored 0.23 is matched; the verdict
 uses only boxes >= 0.25, which are exactly those a 0.25 run returns (NMS handles boxes in score order, so the
@@ -113,20 +118,24 @@ def on_stone(box, refs):
 
 def backyard_verdict(per_photo):
     """per_photo[name] = {'ref': [box], 'weed': [(box, conf)] (quarter tiles), 'all': [(box, conf, cls)] (every
-    view), 'views': [(view_w, view_h, [(box, conf, cls)])]}. A photo without reference boxes cannot show a hit
-    rate and does not pass."""
+    view), 'views': [(view_w, view_h, [(box, conf, cls)])], optional 'unlisted': [box]}. A photo without
+    reference boxes cannot show a hit rate and does not pass."""
     photos, hits_all, refs_all = {}, 0, 0
     for name, p in per_photo.items():
         refs = [tuple(r) for r in p['ref']]
-        weed = [b for b, c in p['weed'] if c >= CONF]
+        zones = [tuple(u) for u in p.get('unlisted', [])]
+        in_zone = lambda b: any(centre_in(b, u) for u in zones)                    # noqa: E731
+        weed = [b for b, c in p['weed'] if c >= CONF and not in_zone(b)]
         ref_hit = [any(is_hit(b, r) for b in weed) for r in refs]
-        stone = [[list(b), c, k] for b, c, k in p['all'] if c >= CONF and on_stone(b, refs)]
+        stone = [[list(b), c, k] for b, c, k in p['all'] if c >= CONF and not in_zone(b) and on_stone(b, refs)]
+        unlisted = [[list(b), c, k] for b, c, k in p['all'] if c >= CONF and in_zone(b)]
         over = [[list(b), c, k] for vw, vh, boxes in p['views'] for b, c, k in boxes
                 if c >= CONF and area(b) / (vw * vh) > MAX_VIEW_SHARE]
         hits = sum(ref_hit)
         rate = hits / len(refs) if refs else None
         photos[name] = {'hits': hits, 'refs': len(refs), 'hit_rate': rate, 'stone_boxes': len(stone),
-                        'oversize': len(over), 'ref_hit': ref_hit, 'stone_box_list': stone, 'oversize_list': over,
+                        'oversize': len(over), 'on_unlisted': len(unlisted), 'ref_hit': ref_hit,
+                        'stone_box_list': stone, 'oversize_list': over, 'on_unlisted_list': unlisted,
                         'pass': rate is not None and rate >= MIN_HIT_RATE and len(stone) <= MAX_STONE_BOXES
                         and not over}
         hits_all += hits
@@ -226,6 +235,18 @@ def load_reference(path):
     if not os.path.isfile(path):
         raise SystemExit(f'no reference file {path}: make and freeze the reference first (reference command); '
                          'the check never runs without it')
+    return _load_boxes(path, 'reference')
+
+
+def load_unlisted(reference_json):
+    """unlisted.json next to the reference: ({photo: [box]}, sha256, path), or (None, None, None) without it."""
+    path = os.path.join(os.path.dirname(os.path.abspath(reference_json)), 'unlisted.json')
+    if not os.path.isfile(path):
+        return None, None, None
+    return (*_load_boxes(path, 'unlisted'), path)
+
+
+def _load_boxes(path, what):
     with open(path, 'rb') as f:
         raw = f.read()
     is_box = lambda b: (isinstance(b, list) and len(b) == 4                          # noqa: E731
@@ -238,7 +259,7 @@ def load_reference(path):
     except ValueError:
         ok = False
     if not ok:
-        raise SystemExit(f'bad reference file {path}: must be {{photo: [[x0, y0, x1, y1], ...]}} for exactly '
+        raise SystemExit(f'bad {what} file {path}: must be {{photo: [[x0, y0, x1, y1], ...]}} for exactly '
                          f'{", ".join(PHOTOS)}')
     return {k: [tuple(float(x) for x in b) for b in v] for k, v in ref.items()}, hashlib.sha256(raw).hexdigest()
 
@@ -255,19 +276,24 @@ def yolo_predictor(path):
     return predict
 
 
-def _draw_check(img, refs, ref_hit, boxes, stone, over, path):
-    """Reference boxes green (hit) / yellow (missed); weed red, keep blue; ' S' = on stones, ' BIG' = > 50 %."""
+def _draw_check(img, refs, ref_hit, zones, boxes, v, path):
+    """Reference boxes green (hit) / yellow (missed), unlisted zones cyan; weed red, keep blue; tags ' S' = on
+    stones, ' U' = on an unlisted weed, ' BIG' = > 50 % of its view."""
     canvas = img.copy()
     draw, font = ImageDraw.Draw(canvas), _font(30)
     for r, hit in zip(refs, ref_hit):
         draw.rectangle(r, outline=(0, 255, 0) if hit else (255, 255, 0), width=5)
-    stone_set, over_set = {tuple(b) for b, _, _ in stone}, {tuple(b) for b, _, _ in over}
+    for u in zones:
+        draw.rectangle(u, outline=(0, 230, 255), width=3)
+    stone_set, over_set = {tuple(b) for b, _, _ in v['stone_box_list']}, {tuple(b) for b, _, _ in v['oversize_list']}
+    unl_set = {tuple(b) for b, _, _ in v['on_unlisted_list']}
     used = set()                                  # labels of boxes sharing a corner are stacked, not overdrawn
     for b, c, k in boxes:
         col = (255, 40, 40) if k == 'weed' else (40, 120, 255)
         big = tuple(b) in over_set
         draw.rectangle(b, outline=(255, 0, 255) if big else col, width=9 if big else 4)
-        tag = f'{k} {c:.2f}' + (' S' if tuple(b) in stone_set else '') + (' BIG' if big else '')
+        tag = (f'{k} {c:.2f}' + (' S' if tuple(b) in stone_set else '') + (' U' if tuple(b) in unl_set else '')
+               + (' BIG' if big else ''))
         x, y = round(b[0] + 4), round(b[1] + 4)
         while any(abs(x - ux) < 40 and abs(y - uy) < 36 for ux, uy in used):
             y += 36
@@ -278,6 +304,7 @@ def _draw_check(img, refs, ref_hit, boxes, stone, over, path):
 
 def check(model_dir, reference_json, photos_dir=PHOTOS_DIR, predictors=None):
     ref, sha = load_reference(reference_json)
+    unlisted, unlisted_sha, unlisted_path = load_unlisted(reference_json)
     if predictors is None:
         paths = {'pt': os.path.join(model_dir, 'best.pt'), 'ncnn': os.path.join(model_dir, 'best_ncnn_model')}
         for p in paths.values():
@@ -289,7 +316,7 @@ def check(model_dir, reference_json, photos_dir=PHOTOS_DIR, predictors=None):
     per_photo, boxes, fid_views, drawn = {}, {}, {}, {}
     for name in PHOTOS:
         img = load_photo(photos_dir, name)
-        entry = {'ref': ref[name], 'weed': [], 'all': [], 'views': []}
+        entry = {'ref': ref[name], 'weed': [], 'all': [], 'views': [], 'unlisted': (unlisted or {}).get(name, [])}
         boxes[name], drawn[name] = {}, {'tiles': [], 'whole': [], 'img': img}
         for label, view, vimg in views_of(img):
             inp = letterbox_square(vimg)                      # the SAME 640 x 640 picture for both models
@@ -314,7 +341,8 @@ def check(model_dir, reference_json, photos_dir=PHOTOS_DIR, predictors=None):
     word = lambda ok: 'PASS' if ok else 'FAIL'                # noqa: E731
     report = {'backyard_check': word(verdict['pass']), 'pi_version_check': word(fid['pass']),
               'model_dir': os.path.abspath(model_dir), 'reference': os.path.abspath(reference_json),
-              'reference_sha256': sha, 'verdict': verdict, 'fidelity': fid,
+              'reference_sha256': sha, 'unlisted': unlisted_path, 'unlisted_sha256': unlisted_sha,
+              'verdict': verdict, 'fidelity': fid,
               'settings': {'imgsz': SIZE, 'conf': CONF, 'predict_conf': PREDICT_CONF, 'hit_iou': HIT_IOU,
                            'min_hit_rate': MIN_HIT_RATE, 'stone_iou': STONE_IOU,
                            'max_stone_boxes': MAX_STONE_BOXES, 'max_view_share': MAX_VIEW_SHARE,
@@ -325,16 +353,18 @@ def check(model_dir, reference_json, photos_dir=PHOTOS_DIR, predictors=None):
     for name, d in drawn.items():
         v = verdict['photos'][name]
         for kind in ('tiles', 'whole'):
-            _draw_check(d['img'], ref[name], v['ref_hit'], d[kind], v['stone_box_list'], v['oversize_list'],
+            _draw_check(d['img'], ref[name], v['ref_hit'], per_photo[name]['unlisted'], d[kind], v,
                         os.path.join(out, f'{name}_{kind}.jpg'))
     return report
 
 
 def _print_report(rep):
+    print(f"reference {rep['reference']} sha256 {rep['reference_sha256']}")
+    print(f"unlisted  {rep['unlisted'] or '(none)'} sha256 {rep['unlisted_sha256']}")
     for name, p in rep['verdict']['photos'].items():
         rate = 'n/a' if p['hit_rate'] is None else f"{p['hit_rate']:.2f}"
         print(f"{name}: hits {p['hits']}/{p['refs']} (hit rate {rate}), stone boxes {p['stone_boxes']}, "
-              f"oversize {p['oversize']} -> {'PASS' if p['pass'] else 'FAIL'}")
+              f"oversize {p['oversize']}, on unlisted weeds {p['on_unlisted']} -> {'PASS' if p['pass'] else 'FAIL'}")
     pooled = rep['verdict']['pooled_hit_rate']
     print(f"pooled hit rate {'n/a' if pooled is None else f'{pooled:.2f}'}")
     print(f"BACKYARD CHECK: {rep['backyard_check']}")
