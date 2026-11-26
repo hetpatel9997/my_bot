@@ -420,3 +420,22 @@ def test_drop_big_box_images(tmp_path):
         assert [r['file'] for r in _csv.DictReader(f)] == ['train/images/openimages__ok.jpg']
     with open(out / 'manifest_cottonweed.csv') as f:
         assert len(list(_csv.DictReader(f))) == 1
+
+
+def test_label_images_model_error_keeps_cached_labels(tmp_path):
+    paths = make_set(tmp_path, {'A': 30, 'B': 31, 'C': 32})
+    cache = tmp_path / 'cache.jsonl'
+
+    class DiesOnThird(NamedFake):
+        def detect(self, image, queries, min_score=TE.RAW_MIN_SCORE):
+            if self.calls == 2:
+                raise OSError('model died')
+            return super().detect(image, queries, min_score)
+
+    with pytest.raises(OSError):
+        TE.label_images(paths, 'weed', DiesOnThird({30: [good_det()], 31: [good_det()]}), str(cache), log_every=1000)
+    assert len(cache.read_text().splitlines()) == 2             # the two finished photos were saved
+    assert os.path.exists(paths[2])
+    again = NamedFake({32: [good_det()]})
+    res = TE.label_images(paths, 'weed', again, str(cache), log_every=1000)
+    assert again.calls == 1 and res['from_cache'] == 2 and res['labelled'] == 3

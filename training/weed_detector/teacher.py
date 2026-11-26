@@ -179,40 +179,42 @@ def label_images(image_paths, kind, teacher, cache_path, log_every=200):
         res['dropped'][reason] += 1
 
     t0, done = time.time(), 0
-    for img in image_paths:
-        if not os.path.exists(img):
-            continue
-        lab = _label_path(img)
-        stem = os.path.splitext(os.path.basename(img))[0]
-        if stem in cache:
-            dets = cache[stem][2]
-            res['from_cache'] += 1
-        else:
-            try:                                        # only the photo itself may be 'unreadable'
-                with Image.open(img) as im:
-                    im = ImageOps.exif_transpose(im).convert('RGB')
-                    w, h = im.size
-            except (OSError, ValueError, SyntaxError):
-                drop(img, lab, 'unreadable')
+    try:
+        for img in image_paths:
+            if not os.path.exists(img):
                 continue
-            dets = teacher.detect(im, queries, RAW_MIN_SCORE)   # a model error crashes and keeps the photo
-            pending.append(json.dumps({'stem': stem, 'w': w, 'h': h, 'queries': queries,
-                                       'dets': [list(d) for d in dets]}) + '\n')
-        boxes = select_boxes(dets, kind)
-        reason = image_verdict(kind, boxes, dets)
-        if reason:
-            drop(img, lab, reason)
-        else:
-            with open(lab, 'w') as f:
-                for c, cx, cy, bw, bh in boxes:
-                    f.write(f'{c} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n')
-            res['labelled'] += 1
-            res['boxes'] += len(boxes)
-        done += 1
-        if log_every and done % log_every == 0:
-            flush()
-            print(f'{done}/{len(image_paths)} images, {done / max(1e-9, time.time() - t0):.2f} img/s, '
-                  f'{dict(res["dropped"])}', flush=True)
-    flush()
+            lab = _label_path(img)
+            stem = os.path.splitext(os.path.basename(img))[0]
+            if stem in cache:
+                dets = cache[stem][2]
+                res['from_cache'] += 1
+            else:
+                try:                                        # only the photo itself may be 'unreadable'
+                    with Image.open(img) as im:
+                        im = ImageOps.exif_transpose(im).convert('RGB')
+                        w, h = im.size
+                except (OSError, ValueError, SyntaxError):
+                    drop(img, lab, 'unreadable')
+                    continue
+                dets = teacher.detect(im, queries, RAW_MIN_SCORE)   # a model error crashes and keeps the photo
+                pending.append(json.dumps({'stem': stem, 'w': w, 'h': h, 'queries': queries,
+                                           'dets': [list(d) for d in dets]}) + '\n')
+            boxes = select_boxes(dets, kind)
+            reason = image_verdict(kind, boxes, dets)
+            if reason:
+                drop(img, lab, reason)
+            else:
+                with open(lab, 'w') as f:
+                    for c, cx, cy, bw, bh in boxes:
+                        f.write(f'{c} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n')
+                res['labelled'] += 1
+                res['boxes'] += len(boxes)
+            done += 1
+            if log_every and done % log_every == 0:
+                flush()
+                print(f'{done}/{len(image_paths)} images, {done / max(1e-9, time.time() - t0):.2f} img/s, '
+                      f'{dict(res["dropped"])}', flush=True)
+    finally:
+        flush()                                       # labels already paid for survive a model error
     res['dropped'] = dict(res['dropped'])
     return res
