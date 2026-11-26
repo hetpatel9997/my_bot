@@ -439,3 +439,237 @@ def test_label_images_model_error_keeps_cached_labels(tmp_path):
     again = NamedFake({32: [good_det()]})
     res = TE.label_images(paths, 'weed', again, str(cache), log_every=1000)
     assert again.calls == 1 and res['from_cache'] == 2 and res['labelled'] == 3
+
+
+# ---------------------------------------------------------------- backyard check (no model, no owner photo here)
+import hashlib  # noqa: E402
+
+from weed_detector import backyard_check as BC  # noqa: E402
+
+
+def test_is_hit_centre_inside_iou_and_miss():
+    ref = (0, 0, 10, 10)
+    assert BC.is_hit((4, 4, 6, 6), ref)                    # centre inside (IoU only 0.04)
+    assert BC.is_hit((0, 0, 22, 10), ref)                  # centre (11, 5) outside, IoU 0.45
+    assert BC.is_hit((0, 0, 100, 10), (0, 0, 30, 10))      # centre outside, IoU exactly 0.3
+    assert not BC.is_hit((6, 0, 16, 10), ref)              # centre outside, IoU 0.25
+    assert not BC.is_hit((20, 20, 30, 30), ref)
+
+
+def photo(n_refs, n_hit, stone=0, views=None, conf=0.5):
+    """n_refs reference boxes in a row, the first n_hit of them hit by a quarter-tile weed box, + stone boxes."""
+    refs = [(i * 100, 0, i * 100 + 50, 50) for i in range(n_refs)]
+    weed = [((r[0] + 20, 20, r[0] + 30, 30), conf) for r in refs[:n_hit]]
+    all_ = [(b, c, 'weed') for b, c in weed] + [((i * 100, 500, i * 100 + 20, 520), conf, 'keep') for i in range(stone)]
+    return {'ref': refs, 'weed': weed, 'all': all_, 'views': [(1000, 1000, all_)] if views is None else views}
+
+
+def test_backyard_verdict_hit_rate_70_percent():
+    v = BC.backyard_verdict({'A': photo(10, 7)})
+    a = v['photos']['A']
+    assert (a['hits'], a['refs'], a['hit_rate'], a['pass']) == (7, 10, 0.7, True)
+    assert v['pass'] is True and v['pooled_hit_rate'] == 0.7
+    v = BC.backyard_verdict({'A': photo(10, 6)})
+    assert v['photos']['A']['hit_rate'] == 0.6 and v['photos']['A']['pass'] is False and v['pass'] is False
+
+
+def test_backyard_verdict_low_confidence_boxes_do_not_count():
+    v = BC.backyard_verdict({'A': photo(10, 10, stone=3, conf=0.24)})
+    assert v['photos']['A']['hits'] == 0 and v['photos']['A']['stone_boxes'] == 0
+
+
+def test_backyard_verdict_stone_boxes():
+    assert BC.backyard_verdict({'A': photo(10, 10, stone=2)})['pass'] is True
+    v = BC.backyard_verdict({'A': photo(10, 10, stone=3)})
+    assert v['photos']['A']['stone_boxes'] == 3 and v['pass'] is False
+    p = photo(1, 1)                                        # ref (0, 0, 50, 50); both boxes have their centre outside it
+    p['all'] += [((40, 0, 90, 50), 0.5, 'weed'),           # IoU 0.11 with the ref: on the weed, not a stone box
+                 ((45, 0, 95, 50), 0.5, 'weed')]           # IoU 0.05: a stone box
+    assert BC.backyard_verdict({'A': p})['photos']['A']['stone_boxes'] == 1
+
+
+def test_backyard_verdict_box_over_half_a_view():
+    big = BC.backyard_verdict({'A': photo(10, 10, views=[(100, 100, [((0, 0, 51, 100), 0.5, 'weed')])])})
+    assert big['photos']['A']['oversize'] == 1 and big['pass'] is False
+    half = BC.backyard_verdict({'A': photo(10, 10, views=[(100, 100, [((0, 0, 50, 100), 0.5, 'weed')])])})
+    assert half['photos']['A']['oversize'] == 0 and half['pass'] is True
+
+
+def test_backyard_verdict_every_photo_must_pass():
+    v = BC.backyard_verdict({'A': photo(10, 8), 'B': photo(10, 5)})
+    assert v['photos']['A']['pass'] is True and v['photos']['B']['pass'] is False
+    assert v['pass'] is False and v['pooled_hit_rate'] == pytest.approx(0.65)
+
+
+def test_backyard_verdict_photo_without_reference_boxes_fails():
+    v = BC.backyard_verdict({'A': photo(0, 0)})
+    assert v['photos']['A']['hit_rate'] is None and v['photos']['A']['pass'] is False
+    assert v['pooled_hit_rate'] is None and v['pass'] is False
+
+
+def test_letterbox_square_pads_grey_at_bottom_right():
+    red, green, grey = (200, 10, 10), (10, 200, 10), (114, 114, 114)
+    lb = BC.letterbox_square(Image.new('RGB', (400, 200), red))
+    assert lb.size == (640, 640)
+    assert lb.getpixel((0, 0)) == red and lb.getpixel((639, 319)) == red          # content 640 x 320 at the top
+    assert lb.getpixel((0, 320)) == grey and lb.getpixel((639, 639)) == grey
+    tall = BC.letterbox_square(Image.new('RGB', (100, 200), green))
+    assert tall.getpixel((319, 639)) == green and tall.getpixel((320, 0)) == grey  # content 320 x 640 at the left
+
+
+def test_quarter_tiles_cover_the_photo():
+    im = Image.new('RGB', (9, 7))
+    im.putpixel((8, 6), (255, 0, 0))
+    tiles = BC.quarter_tiles(im)
+    assert [(x, y, t.size) for x, y, t in tiles] == [(0, 0, (4, 3)), (4, 0, (5, 3)), (0, 3, (4, 4)), (4, 3, (5, 4))]
+    assert tiles[3][2].getpixel((4, 3)) == (255, 0, 0)
+
+
+def test_from_letterbox_undoes_scale_and_offset():
+    view = (768, 1024, 768, 1024)            # bottom-right quarter of a 1536 x 2048 photo, shown at 480 x 640
+    assert BC.from_letterbox((0, 0, 480, 640), view) == (768, 1024, 1536, 2048)
+    assert BC.from_letterbox((48, 64, 96, 128), view) == pytest.approx((844.8, 1126.4, 921.6, 1228.8))
+    assert BC.from_letterbox((400, 600, 600, 660), view) == pytest.approx((1408, 1984, 1536, 2048))  # cut at the view
+
+
+def fb(conf=0.6, cls='weed', box=(10, 10, 110, 110)):
+    return (box, conf, cls)
+
+
+def test_fidelity_identical_lists_pass():
+    a = [fb(), fb(0.3, 'keep', (200, 200, 260, 280))]
+    f = BC.fidelity(a, list(a))
+    assert f['pass'] is True and f['min_iou'] == 1.0 and f['max_conf_diff'] == 0.0
+    assert BC.fidelity([], [])['pass'] is True
+
+
+def test_fidelity_confidence_gap():
+    f = BC.fidelity([fb(0.60)], [fb(0.66)])
+    assert f['pass'] is False and f['max_conf_diff'] == pytest.approx(0.06)
+    assert BC.fidelity([fb(0.60)], [fb(0.64)])['pass'] is True
+    assert BC.fidelity([fb(0.27)], [fb(0.23)])['pass'] is True       # the partner may sit just under 0.25
+
+
+def test_fidelity_extra_box_class_and_iou():
+    f = BC.fidelity([fb()], [fb(), fb(0.4, 'weed', (300, 300, 350, 350))])
+    assert f['pass'] is False and len(f['unmatched_ncnn']) == 1 and not f['unmatched_pt']
+    assert BC.fidelity([fb()], [fb(), fb(0.2, 'weed', (300, 300, 350, 350))])['pass'] is True   # under 0.25: ignored
+    assert BC.fidelity([fb(cls='weed')], [fb(cls='keep')])['pass'] is False
+    f = BC.fidelity([fb()], [fb(box=(16, 10, 116, 110))])                                       # IoU 0.89
+    assert f['pass'] is False and f['min_iou'] == pytest.approx(0.8868, abs=1e-3)
+
+
+def make_photos(tmp_path, size=(200, 100)):
+    d = tmp_path / 'photos'
+    d.mkdir()
+    for n in BC.PHOTOS:
+        Image.new('RGB', size, (90, 90, 90)).save(d / f'{n}.JPG')
+    return d
+
+
+class FakeTeacher:
+    def __init__(self):
+        self.calls = []
+
+    def detect(self, image, queries, min_score=TE.RAW_MIN_SCORE):
+        self.calls.append((image.size, list(queries), min_score))
+        plant, distract = TE.QUERIES['weed']['plant'], TE.QUERIES['weed']['distract']
+        return [TE.Det(plant[2], 0.3, 0.1, 0.2, 0.5, 0.6), TE.Det(distract[1], 0.9, 0.0, 0.0, 1.0, 1.0),
+                TE.Det(plant[0], 0.12, 0.6, 0.6, 0.8, 0.9), TE.Det(plant[1], 0.08, 0.0, 0.0, 0.5, 0.5)]
+
+
+def test_reference_candidates_in_photo_pixels(tmp_path):
+    out, teacher = tmp_path / 'ref', FakeTeacher()
+    BC.reference(str(out), photos_dir=str(make_photos(tmp_path)), teacher=teacher)
+    assert teacher.calls == [((100, 50), TE.queries_for('weed'), 0.10)] * 8
+    cands = json.loads((out / 'candidates.json').read_text())['candidates']
+    assert [c['n'] for c in cands] == list(range(1, 17))          # 2 plant boxes >= 0.10 per tile, distractor dropped
+    first, t3 = cands[0], [c for c in cands if c['photo'] == 'IMG_0229' and c['tile'] == 3]
+    assert first['photo'] == 'IMG_0229' and first['tile'] == 0 and first['score'] == 0.3
+    assert first['box'] == pytest.approx([10, 10, 50, 30])        # Det boxes are relative to the tile
+    assert t3[0]['box'] == pytest.approx([110, 60, 150, 80])      # + the tile offset (100, 50)
+    assert t3[1]['box'] == pytest.approx([160, 80, 180, 95])
+    for n in BC.PHOTOS:
+        for i in range(4):
+            assert (out / 'drawings' / f'{n}_tile{i}.jpg').exists()
+    assert not (out / 'reference.json').exists()
+
+
+def test_reference_refuses_when_frozen_reference_exists(tmp_path):
+    out = tmp_path / 'ref'
+    out.mkdir()
+    (out / 'reference.json').write_text('{}')
+    teacher = FakeTeacher()
+    with pytest.raises(SystemExit, match='frozen'):
+        BC.reference(str(out), photos_dir=str(make_photos(tmp_path)), teacher=teacher)
+    assert not teacher.calls
+
+
+def test_check_refuses_without_reference(tmp_path):
+    seen = []
+    with pytest.raises(SystemExit, match='reference'):
+        BC.check(str(tmp_path / 'model'), str(tmp_path / 'missing.json'), photos_dir=str(make_photos(tmp_path)),
+                 predictors={'pt': seen.append, 'ncnn': seen.append})
+    with pytest.raises(SystemExit, match='reference'):
+        BC.main(['check', str(tmp_path / 'model'), str(tmp_path / 'missing.json')])   # before any model is loaded
+    assert not seen and not (tmp_path / 'model').exists()
+
+
+def test_check_refuses_a_bad_reference(tmp_path):
+    photos = str(make_photos(tmp_path))
+    for bad in ({'IMG_0229': [[0, 0, 10, 10]]}, {'IMG_0229': [[0, 0, 10]], 'IMG_0230': []},
+                {'IMG_0229': [[10, 0, 0, 10]], 'IMG_0230': []}, ['not', 'a', 'dict'],
+                {'IMG_0229': [['0', '0', '9', '9']], 'IMG_0230': []}):
+        p = tmp_path / 'reference.json'
+        p.write_text(json.dumps(bad))
+        with pytest.raises(SystemExit, match='reference'):
+            BC.check(str(tmp_path / 'model'), str(p), photos_dir=photos, predictors={'pt': None, 'ncnn': None})
+
+
+class FakeYolo:
+    """Same box (on the 640 x 640 input) for every view; records what it was fed."""
+    def __init__(self, conf=0.8):
+        self.conf, self.fed = conf, []
+
+    def __call__(self, img):
+        self.fed.append((img.size, hashlib.md5(img.tobytes()).hexdigest()))
+        return [((64, 64, 128, 128), self.conf, 'weed')]
+
+
+def test_check_maps_views_scores_and_writes_report(tmp_path):
+    # 200 x 100 photo: tiles 100 x 50 and the whole photo are shown at 640 x 320 -> the box (64, 64, 128, 128) is
+    # (10, 10, 20, 20) + tile offset in every tile and (20, 20, 40, 40) in the whole photo.
+    # IMG_0229: the 3rd reference box is hit only by the whole-photo box, which does not count for the hit rate
+    ref = {'IMG_0229': [[8, 8, 22, 22], [110, 60, 120, 70], [22, 22, 40, 40]],       # 2 of 3 hit, 2 stone boxes
+           'IMG_0230': [[10, 10, 20, 20], [110, 10, 120, 20], [10, 60, 20, 70], [110, 60, 120, 70]]}  # 4/4, 1 stone
+    rp = tmp_path / 'reference.json'
+    rp.write_text(json.dumps(ref))
+    model = tmp_path / 'model'
+    pt, ncnn = FakeYolo(), FakeYolo()
+    rep = BC.check(str(model), str(rp), photos_dir=str(make_photos(tmp_path)), predictors={'pt': pt, 'ncnn': ncnn})
+    assert pt.fed == ncnn.fed and len(pt.fed) == 10 and all(s == (640, 640) for s, _ in pt.fed)
+    assert json.loads((model / 'backyard_check' / 'report.json').read_text()) == json.loads(json.dumps(rep))
+    assert rep['reference_sha256'] == hashlib.sha256(rp.read_bytes()).hexdigest()
+    a, b = rep['verdict']['photos']['IMG_0229'], rep['verdict']['photos']['IMG_0230']
+    assert (a['hits'], a['refs'], a['stone_boxes'], a['oversize'], a['pass']) == (2, 3, 2, 0, False)
+    assert (b['hits'], b['refs'], b['stone_boxes'], b['oversize'], b['pass']) == (4, 4, 1, 0, True)
+    assert rep['verdict']['pass'] is False and rep['verdict']['pooled_hit_rate'] == pytest.approx(6 / 7)
+    assert rep['backyard_check'] == 'FAIL' and rep['pi_version_check'] == 'PASS'
+    boxes = rep['boxes']['IMG_0229']
+    assert boxes['tile3']['view'] == [100, 50, 100, 50] and boxes['whole']['view'] == [0, 0, 200, 100]
+    assert boxes['tile3']['pt'][0][0] == pytest.approx([110, 60, 120, 70])
+    assert boxes['whole']['pt'][0][0] == pytest.approx([20, 20, 40, 40])
+    assert rep['fidelity']['pass'] is True
+    for n in BC.PHOTOS:
+        for kind in ('tiles', 'whole'):
+            assert (model / 'backyard_check' / f'{n}_{kind}.jpg').exists()
+
+
+def test_check_reports_a_pi_version_mismatch(tmp_path):
+    rp = tmp_path / 'reference.json'
+    rp.write_text(json.dumps({'IMG_0229': [[8, 8, 22, 22]], 'IMG_0230': [[8, 8, 22, 22]]}))
+    rep = BC.check(str(tmp_path / 'model'), str(rp), photos_dir=str(make_photos(tmp_path)),
+                   predictors={'pt': FakeYolo(0.8), 'ncnn': FakeYolo(0.7)})
+    assert rep['fidelity']['pass'] is False and rep['fidelity']['max_conf_diff'] == pytest.approx(0.1)
+    assert rep['pi_version_check'] == 'FAIL'
+    assert len(rep['fidelity']['failed_views']) == 10
