@@ -51,17 +51,17 @@ LICENCES = {
 
 # iNaturalist: name -> (taxon id, photos wanted). Ids looked up 2026-11-25; 1290817 / 1087592 are complexes.
 INAT_WEED_TAXA = {
-    'Euphorbia maculata': (58893, 2000), 'Euphorbia prostrata': (200053, 600), 'Portulaca oleracea': (58991, 490),
-    'Taraxacum officinale': (47602, 490), 'Trifolium repens': (55745, 490), 'Plantago major': (58961, 490),
-    'Plantago lanceolata': (53178, 490), 'Oxalis corniculata': (53168, 490), 'Polygonum aviculare': (1290817, 490),
-    'Stellaria media': (1087592, 490), 'Lamium amplexicaule': (55459, 490), 'Medicago lupulina': (57056, 490),
-    'Mollugo verticillata': (78090, 490)}
+    'Euphorbia maculata': (58893, 3000), 'Euphorbia prostrata': (200053, 900), 'Portulaca oleracea': (58991, 735),
+    'Taraxacum officinale': (47602, 735), 'Trifolium repens': (55745, 735), 'Plantago major': (58961, 735),
+    'Plantago lanceolata': (53178, 735), 'Oxalis corniculata': (53168, 735), 'Polygonum aviculare': (1290817, 735),
+    'Stellaria media': (1087592, 735), 'Lamium amplexicaule': (55459, 735), 'Medicago lupulina': (57056, 735),
+    'Mollugo verticillata': (78090, 735)}
 INAT_KEEP_TAXA = {
-    'Rosa': (53438, 230), 'Lavandula': (61905, 230), 'Hydrangea macrophylla': (122034, 230),
-    'Buxus sempervirens': (133397, 230), 'Tagetes': (72389, 230), 'Petunia': (55406, 230),
-    'Pelargonium': (72281, 230), 'Hibiscus \u00d7 rosa-sinensis': (1628098, 230), 'Salvia': (50644, 230),
-    'Hemerocallis': (82826, 230), 'Hosta': (82095, 230), 'Juniperus': (47574, 230),
-    'Rhododendron': (49487, 230)}
+    'Rosa': (53438, 460), 'Lavandula': (61905, 460), 'Hydrangea macrophylla': (122034, 460),
+    'Buxus sempervirens': (133397, 460), 'Tagetes': (72389, 460), 'Petunia': (55406, 460),
+    'Pelargonium': (72281, 460), 'Hibiscus \u00d7 rosa-sinensis': (1628098, 460), 'Salvia': (50644, 460),
+    'Hemerocallis': (82826, 460), 'Hosta': (82095, 460), 'Juniperus': (47574, 460),
+    'Rhododendron': (49487, 460)}
 INAT_LICENCES = {'cc0': 'CC0', 'cc-by': 'CC BY', 'cc-by-nc': 'CC BY-NC'}   # the only photo licences used
 
 # Open Images tags of bare ground (the "nothing here" photos) and of anything plant-like (those photos are dropped).

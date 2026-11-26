@@ -63,8 +63,8 @@ Inside 1, synthetic composites were considered and deferred (more moving parts; 
 | `cottonweed` (v1 part on Drive, reused as is) | 5,648 | humans | weed | CC BY-NC 4.0 |
 | `grassweeds` (v1 part, reused) | 2,486 | humans | weed | CC BY 4.0 |
 | `openimages` (v1 part, reused, **filtered at merge**: an image with any box > 40 % of its area is dropped, not just the box) | ~2,300 | humans | keep | CC BY 2.0 / CC BY 4.0 |
-| NEW `inat_weed`: iNaturalist research-grade observations of yard weeds, first photo, `large` (1024 px) | ~8,000 | teacher | weed | per photo: CC0 / CC BY / CC BY-NC |
-| NEW `inat_keep`: iNaturalist observations of common garden flowers and shrubs (cultivated ones allowed: gardens are cultivated) | ~3,000 | teacher | keep | same |
+| NEW `inat_weed`: iNaturalist research-grade observations of yard weeds, first photo, `large` (1024 px) | ~12,000 downloaded, ~3,300 after the teacher | teacher | weed | per photo: CC0 / CC BY / CC BY-NC |
+| NEW `inat_keep`: iNaturalist observations of common garden flowers and shrubs (cultivated ones allowed: gardens are cultivated) | ~6,000 downloaded, ~1,100 after the teacher | teacher | keep | same |
 | NEW `background`: Open Images validation+test photos with a human tag Gravel, Pebble, Rock, Soil, Mulch, Lawn, Grass, Cobblestone, Walkway or Concrete and NO plant tag (~2,000 such photos exist, counted 2026-11-25) | ~1,500-2,000 | none (empty label file) | - | CC BY 2.0 |
 
 - Weed species (broadleaf only, common in gravel, paving and lawns; Claude's call, the builder may add):
@@ -83,7 +83,7 @@ Inside 1, synthetic composites were considered and deferred (more moving parts; 
   agreement with the teacher, so it is reported separately from the human-labelled test sources.
 
 ### Teacher (the big model that draws the boxes)
-- OWLv2 base patch16 ensemble on Colab's T4 GPU (estimate: well under 1 s per image -> ~1-2 h for ~13,000).
+- OWLv2 base patch16 ensemble on Colab's T4 GPU (estimate: well under 1 s per image -> ~1.5-3 h for ~20,000 images).
 - Per image: text queries = the class's plant queries + distractor queries (e.g. "grass", "a stone",
   "soil", "a human hand", "a shoe"). Each box takes its best-scoring query; it becomes a label only if that
   query is a plant query and its score is at least the threshold; boxes overlapping a better box are merged
@@ -101,12 +101,12 @@ Inside 1, synthetic composites were considered and deferred (more moving parts; 
 ### Training
 - Fine-tune from v1 `best.pt` (it already knows plants; the corrected data removes the whole-picture habit),
   ~50 epochs, imgsz 640, patience 15, v1's augmentation settings, run `runs/v2` on Drive (v1 untouched).
-- Expected ~18,000-19,000 training images -> ~5 min per epoch on a T4, ~4-5 h: likely two Colab days
+- Expected ~16,000 training images -> ~5 min per epoch on a T4, ~4-5 h: likely two Colab days
   (free GPU limit seen: ~4.5 h, then "usage limit" for hours). Resumable as in v1; the step-2b
   finish-without-GPU notebook works for v2 too.
 - Owner steps stay the same shape: one dataset notebook (needs a **GPU** this time, for the teacher),
   one training notebook, optional finish notebook; result `MyDrive/weedbot/weed_detector_v2.zip`.
-  Drive space needed beyond v1's: ~3 GB.
+  Drive space needed beyond v1's: ~4.5 GB.
 
 ### Checks before v2 goes on the robot (Claude, on the VM)
 1. **Backyard check.** Reference: the teacher's boxes on quarter tiles of IMG_0229/0230, each kept or
@@ -146,6 +146,7 @@ settled here:
 - Teacher prompts: in weed photos the keep queries ("a flower", "a shrub") act as distractors, in keep
   photos the weed queries do, so a flower in a weed photo does not become `weed` and the other way round; a
   keep box covers the whole plant, not single blossoms. Confirmed or changed in the VM sample check.
+- Download counts raised (weed x1.5, keep x2) after the teacher sample check measured 28 % / 18 % yield (controller ruling, 2026-11-25).
 
 ## Constraints
 - VM: 4 cores, ~4.8 GB RAM, no GPU, ~17 GB free disk: teacher only on small samples, no full dataset.

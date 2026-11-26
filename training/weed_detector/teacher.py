@@ -188,14 +188,14 @@ def label_images(image_paths, kind, teacher, cache_path, log_every=200):
             dets = cache[stem][2]
             res['from_cache'] += 1
         else:
-            try:
+            try:                                        # only the photo itself may be 'unreadable'
                 with Image.open(img) as im:
                     im = ImageOps.exif_transpose(im).convert('RGB')
                     w, h = im.size
-                    dets = teacher.detect(im, queries, RAW_MIN_SCORE)
             except (OSError, ValueError, SyntaxError):
                 drop(img, lab, 'unreadable')
                 continue
+            dets = teacher.detect(im, queries, RAW_MIN_SCORE)   # a model error crashes and keeps the photo
             pending.append(json.dumps({'stem': stem, 'w': w, 'h': h, 'queries': queries,
                                        'dets': [list(d) for d in dets]}) + '\n')
         boxes = select_boxes(dets, kind)

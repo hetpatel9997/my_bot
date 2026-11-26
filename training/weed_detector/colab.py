@@ -18,16 +18,20 @@ from . import sources as S
 
 HF = 'https://huggingface.co/datasets'
 EXPECTED_SOURCES = ('cottonweed', 'grassweeds', 'openimages')   # cropsweeds dropped (mislabelled, see sources.py)
+V2_SOURCES = ('cottonweed', 'grassweeds', 'openimages', 'inat_weed', 'inat_keep', 'background')
+TEACHER_SOURCES = {'inat_weed': 'weed', 'inat_keep': 'keep', 'background': 'background'}   # source -> teacher kind
+OI_MAX_BOX_AREA = 0.4      # an Open Images picture with a box covering more than this is dropped at merge
 
 
 def part_zip(drive_dir, source):
     return os.path.join(drive_dir, 'dataset_parts', f'{source}.zip')
 
 
-def build_part(source, items_fn, work_dir, drive_dir, **build_kw):
-    """Build one source into work_dir/<source> and store it as dataset_parts/<source>.zip on Drive.
+def build_part(source, items_fn, work_dir, drive_dir, zip_name=None, **build_kw):
+    """Build one source into work_dir/<source> and store it as dataset_parts/<zip_name>.zip on Drive
+    (zip_name defaults to the source; the manifest is always named after the source).
     `items_fn()` is only called (downloads only start) if that zip does not exist yet."""
-    target = part_zip(drive_dir, source)
+    target = part_zip(drive_dir, zip_name or source)
     if os.path.exists(target):
         print(f'{source}: already on Drive, skipped')
         return {'skipped': True}
@@ -41,11 +45,58 @@ def build_part(source, items_fn, work_dir, drive_dir, **build_kw):
     if os.path.exists(man):
         os.replace(man, os.path.join(out, f'manifest_{source}.csv'))   # one manifest per part, no clash on merge
     os.makedirs(os.path.dirname(target), exist_ok=True)
-    tmp = shutil.make_archive(os.path.join(work_dir, f'{source}_part'), 'zip', out)
-    shutil.copy(tmp, target + '.part')
-    os.replace(target + '.part', target)
+    _zip_to_drive(out, os.path.join(work_dir, f'{source}_part'), target)
     print(f'{source}: {counts} -> {target}')
     return counts
+
+
+def _zip_to_drive(folder, tmp_base, target):
+    """Zip `folder` and put it at `target` through a .part file, so a stopped copy never leaves a half zip."""
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    tmp = shutil.make_archive(tmp_base, 'zip', folder)
+    shutil.copy(tmp, target + '.part')
+    os.replace(target + '.part', target)
+
+
+def label_part(source, work_dir, drive_dir, teacher_fn):
+    """Turn dataset_parts/<source>_images.zip (photos without boxes, from step 3) into dataset_parts/<source>.zip
+    with teacher boxes. `teacher_fn()` builds the teacher; it is only called when some photo is not in the
+    cache dataset_parts/teacher_<source>.jsonl on Drive, so a stopped run continues where it stopped."""
+    from . import teacher as T
+    target = part_zip(drive_dir, source)
+    if os.path.exists(target):
+        print(f'{source}: already labelled on Drive, skipped')
+        return {'skipped': True}
+    images_zip = part_zip(drive_dir, f'{source}_images')
+    if not os.path.exists(images_zip):
+        raise RuntimeError(f'{images_zip} is missing: run step 3 (03_v2_collect_photos) until it prints DONE')
+    out = os.path.join(work_dir, source)
+    shutil.rmtree(out, ignore_errors=True)            # a fresh unpack; deleted photos come back and drop again from the cache
+    try:
+        with zipfile.ZipFile(images_zip) as f:
+            f.extractall(out)
+    except zipfile.BadZipFile:
+        raise RuntimeError(f'{images_zip} is damaged: delete it in Google Drive and run step 3 (03_v2_collect_photos) again')
+    cache = os.path.join(drive_dir, 'dataset_parts', f'teacher_{source}.jsonl')
+    kind = TEACHER_SOURCES[source]
+    paths = sorted(glob.glob(os.path.join(out, '*', 'images', '*.jpg')))
+    lazy = _LazyTeacher(teacher_fn)
+    res = T.label_images(paths, kind, lazy, cache)
+    _rewrite_manifests(out)
+    _zip_to_drive(out, os.path.join(work_dir, f'{source}_labelled'), target)
+    print(f'{source}: {res} -> {target}')
+    return res
+
+
+class _LazyTeacher:
+    """Builds the real teacher on the first detect() call."""
+    def __init__(self, teacher_fn):
+        self._fn, self._teacher = teacher_fn, None
+
+    def detect(self, image, queries, min_score):
+        if self._teacher is None:
+            self._teacher = self._fn()
+        return self._teacher.detect(image, queries, min_score)
 
 
 def merge_parts(drive_dir, out_dir, sources=EXPECTED_SOURCES):
@@ -65,13 +116,61 @@ def merge_parts(drive_dir, out_dir, sources=EXPECTED_SOURCES):
     return summary(out_dir)
 
 
+def _rewrite_manifests(out_dir):
+    """Make every manifest_*.csv match the folder: `file` / `split` point to where each image is now, `n_boxes` is
+    counted from its label file, and rows of images that are gone are removed."""
+    import csv
+    where = {}
+    for split in ('train', 'val', 'test'):
+        for img in glob.glob(os.path.join(out_dir, split, 'images', '*.jpg')):
+            where[os.path.basename(img)] = split
+    for man in glob.glob(os.path.join(out_dir, 'manifest_*.csv')):
+        with open(man) as f:
+            rows = list(csv.DictReader(f))
+        if not rows:
+            continue
+        keep_rows = []
+        for r in rows:
+            base = os.path.basename(r['file'])
+            if base in where:
+                r['split'] = where[base]
+                r['file'] = f"{where[base]}/images/{base}"
+                lab = os.path.join(out_dir, where[base], 'labels', os.path.splitext(base)[0] + '.txt')
+                if os.path.exists(lab):
+                    with open(lab) as lf:
+                        r['n_boxes'] = sum(1 for line in lf if line.strip())
+                keep_rows.append(r)
+        with open(man, 'w', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            w.writeheader()
+            w.writerows(keep_rows)
+
+
+def drop_big_box_images(out_dir, source='openimages', max_area=OI_MAX_BOX_AREA):
+    """Remove every `source` picture (image + label) that has any box covering more than max_area of it: such a
+    box is a whole-picture box, and dropping just the box would leave the plant unlabelled. Manifests are
+    rewritten. Returns the number of pictures removed."""
+    removed = 0
+    for split in ('train', 'val', 'test'):
+        for lab in glob.glob(os.path.join(out_dir, split, 'labels', f'{source}__*.txt')):
+            with open(lab) as f:
+                areas = [float(p[3]) * float(p[4]) for p in (line.split() for line in f) if len(p) >= 5]
+            if any(a > max_area for a in areas):
+                os.remove(lab)
+                img = os.path.join(out_dir, split, 'images', os.path.splitext(os.path.basename(lab))[0] + '.jpg')
+                if os.path.exists(img):
+                    os.remove(img)
+                removed += 1
+    _rewrite_manifests(out_dir)
+    return removed
+
+
 def repair_after_merge(out_dir, weed_ids=None, tmp_dir='/content/work_oi'):
     """Bring parts built by an OLDER step 1 up to date (a no-op for parts built by the current one):
     - cottonweed images move to the split of their capture session (no near-duplicates across splits);
     - openimages `keep` pictures that a human tagged with any weed in S.OI_WEED_MIDS are removed.
     `weed_ids` (Open Images ids) is downloaded when not given. Manifests are rewritten to match.
     Returns {'cottonweed_moved': n, 'openimages_removed': n}."""
-    import csv
     moved = removed = 0
     for split in ('train', 'val', 'test'):
         for img in glob.glob(os.path.join(out_dir, split, 'images', 'cottonweed__*.jpg')):
@@ -106,27 +205,7 @@ def repair_after_merge(out_dir, weed_ids=None, tmp_dir='/content/work_oi'):
                 if os.path.exists(lab):
                     os.remove(lab)
                 removed += 1
-    # manifests: rewrite file / split to where the images are now; drop removed images
-    where = {}
-    for split in ('train', 'val', 'test'):
-        for img in glob.glob(os.path.join(out_dir, split, 'images', '*.jpg')):
-            where[os.path.basename(img)] = split
-    for man in glob.glob(os.path.join(out_dir, 'manifest_*.csv')):
-        with open(man) as f:
-            rows = list(csv.DictReader(f))
-        if not rows:
-            continue
-        keep_rows = []
-        for r in rows:
-            base = os.path.basename(r['file'])
-            if base in where:
-                r['split'] = where[base]
-                r['file'] = f"{where[base]}/images/{base}"
-                keep_rows.append(r)
-        with open(man, 'w', newline='') as f:
-            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-            w.writeheader()
-            w.writerows(keep_rows)
+    _rewrite_manifests(out_dir)
     return {'cottonweed_moved': moved, 'openimages_removed': removed}
 
 

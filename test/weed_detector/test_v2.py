@@ -18,8 +18,8 @@ def obs(oid, lic='cc-by-nc', pid=7, name='Euphorbia maculata'):
 
 
 def test_inat_taxa_totals():
-    assert sum(n for _, n in S.INAT_WEED_TAXA.values()) == 7990
-    assert sum(n for _, n in S.INAT_KEEP_TAXA.values()) == 2990
+    assert sum(n for _, n in S.INAT_WEED_TAXA.values()) == 11985
+    assert sum(n for _, n in S.INAT_KEEP_TAXA.values()) == 5980
 
 
 def test_inat_item_fields():
@@ -286,3 +286,137 @@ def test_label_images_corrupt_image(tmp_path):
     res = TE.label_images(paths + [str(bad)], 'weed', NamedFake({30: [good_det()]}), str(tmp_path / 'c.jsonl'))
     assert res['dropped'] == {'unreadable': 1} and res['labelled'] == 1
     assert not bad.exists()
+
+
+def test_label_images_model_error_keeps_image(tmp_path):
+    paths = make_set(tmp_path, {'A': 30})
+
+    class Broken:
+        def detect(self, image, queries, min_score):
+            raise OSError('model weights file vanished')
+
+    with pytest.raises(OSError):
+        TE.label_images(paths, 'weed', Broken(), str(tmp_path / 'c.jsonl'))
+    assert os.path.exists(paths[0])
+
+
+# ---------------------------------------------------------------- Drive parts (fake Drive = a temp folder)
+import zipfile  # noqa: E402
+
+
+def zip_names(path):
+    with zipfile.ZipFile(path) as z:
+        return set(z.namelist())
+
+
+import csv as _csv  # noqa: E402
+
+
+def make_images_part(tmp_path, widths, source='inat_weed'):
+    """Run build_part the way step 3 does: photos without boxes -> dataset_parts/<source>_images.zip."""
+    drive, work = tmp_path / 'drive', tmp_path / 'work'
+    items = []
+    for i, wid in enumerate(widths):
+        p = tmp_path / f'src{i}.jpg'
+        Image.new('RGB', (wid, 20), 'green').save(p)
+        items.append(S.Item(source, f'{i}.jpg', str(p), 'train', [], 'CC0', 'x'))
+    C.build_part(source, lambda: items, str(work), str(drive), zip_name=f'{source}_images')
+    return drive, work
+
+
+def test_build_part_zip_name(tmp_path):
+    drive, _ = make_images_part(tmp_path, [30])
+    assert (drive / 'dataset_parts' / 'inat_weed_images.zip').exists()
+    assert not (drive / 'dataset_parts' / 'inat_weed.zip').exists()
+    with zipfile.ZipFile(drive / 'dataset_parts' / 'inat_weed_images.zip') as z:
+        assert 'manifest_inat_weed.csv' in z.namelist()      # named after the source, not zip_name
+
+
+def test_label_part_from_images_zip(tmp_path):
+    drive, work = make_images_part(tmp_path, [30, 40])
+    fake = NamedFake({30: [good_det()], 40: []})
+    res = C.label_part('inat_weed', str(work), str(drive), lambda: fake)
+    assert res['labelled'] == 1 and res['dropped'] == {'teacher found no plant': 1}
+    assert (drive / 'dataset_parts' / 'teacher_inat_weed.jsonl').exists()
+    out = tmp_path / 'check'
+    with zipfile.ZipFile(drive / 'dataset_parts' / 'inat_weed.zip') as z:
+        z.extractall(out)
+    assert [p.name for p in (out / 'train' / 'images').iterdir()] == ['inat_weed__0.jpg']
+    assert (out / 'train' / 'labels' / 'inat_weed__0.txt').read_text().startswith('0 ')
+    assert len(list((out / 'train' / 'labels').iterdir())) == 1
+    with open(out / 'manifest_inat_weed.csv') as f:
+        rows = list(_csv.DictReader(f))
+    assert [(r['file'], r['n_boxes']) for r in rows] == [('train/images/inat_weed__0.jpg', '1')]
+
+
+def test_label_part_skips_when_labelled_exists(tmp_path):
+    drive, work = make_images_part(tmp_path, [30])
+    C.label_part('inat_weed', str(work), str(drive), lambda: NamedFake({30: [good_det()]}))
+
+    def boom():
+        raise AssertionError('teacher_fn must not be called')
+    assert C.label_part('inat_weed', str(work), str(drive), boom) == {'skipped': True}
+
+
+def test_label_part_missing_images_part(tmp_path):
+    with pytest.raises(RuntimeError, match='03_v2_collect_photos'):
+        C.label_part('inat_weed', str(tmp_path / 'w'), str(tmp_path / 'd'), lambda: None)
+
+
+def test_label_part_damaged_images_zip(tmp_path):
+    drive = tmp_path / 'd'
+    (drive / 'dataset_parts').mkdir(parents=True)
+    (drive / 'dataset_parts' / 'inat_weed_images.zip').write_bytes(b'junk')
+    with pytest.raises(RuntimeError, match='damaged'):
+        C.label_part('inat_weed', str(tmp_path / 'w'), str(drive), lambda: None)
+
+
+def test_label_part_rerun_uses_cache_and_builds_teacher_only_when_needed(tmp_path):
+    drive, work = make_images_part(tmp_path, [30, 40])
+    C.label_part('inat_weed', str(work), str(drive), lambda: NamedFake({30: [good_det()], 40: [good_det()]}))
+    (drive / 'dataset_parts' / 'inat_weed.zip').unlink()          # as if the run stopped before the zip
+    built = []
+    res = C.label_part('inat_weed', str(work), str(drive), lambda: built.append(1))
+    assert built == [] and res['from_cache'] == 2 and res['labelled'] == 2
+
+
+def test_label_part_cache_covers_part_of_the_photos(tmp_path):
+    drive, work = make_images_part(tmp_path, [30, 40])
+    first = NamedFake({30: [good_det()]})
+    C.label_part('inat_weed', str(work), str(drive), lambda: first)
+    cache = drive / 'dataset_parts' / 'teacher_inat_weed.jsonl'
+    lines = cache.read_text().splitlines()
+    cache.write_text(lines[0] + '\n')                              # the stop happened after the first photo
+    (drive / 'dataset_parts' / 'inat_weed.zip').unlink()
+    second = NamedFake({30: [good_det()], 40: [good_det()]})
+    res = C.label_part('inat_weed', str(work), str(drive), lambda: second)
+    assert second.calls == 1 and res['from_cache'] == 1 and res['labelled'] == 2
+
+
+def test_drop_big_box_images(tmp_path):
+    out = tmp_path / 'ds'
+    (out / 'train' / 'images').mkdir(parents=True)
+    (out / 'train' / 'labels').mkdir(parents=True)
+    side = lambda a: a ** 0.5                                      # noqa: E731  square box of area a
+    cases = {'openimages__big': (0, C.OI_MAX_BOX_AREA + 0.1), 'openimages__ok': (1, C.OI_MAX_BOX_AREA - 0.1),
+             'cottonweed__big': (0, C.OI_MAX_BOX_AREA + 0.1)}
+    rows = []
+    for stem, (cls, area) in cases.items():
+        Image.new('RGB', (8, 8)).save(out / 'train' / 'images' / f'{stem}.jpg')
+        (out / 'train' / 'labels' / f'{stem}.txt').write_text(f'{cls} 0.5 0.5 {side(area):.4f} {side(area):.4f}\n')
+        rows.append({'file': f'train/images/{stem}.jpg', 'split': 'train', 'source': stem.split('__')[0],
+                     'n_boxes': 1, 'orig_labels': '', 'licence': 'x'})
+    for src in ('openimages', 'cottonweed'):
+        with open(out / f'manifest_{src}.csv', 'w', newline='') as f:
+            w = _csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            w.writeheader()
+            w.writerows(r for r in rows if r['source'] == src)
+    assert C.drop_big_box_images(str(out)) == 1
+    assert not (out / 'train' / 'images' / 'openimages__big.jpg').exists()
+    assert not (out / 'train' / 'labels' / 'openimages__big.txt').exists()
+    assert (out / 'train' / 'images' / 'openimages__ok.jpg').exists()
+    assert (out / 'train' / 'images' / 'cottonweed__big.jpg').exists()
+    with open(out / 'manifest_openimages.csv') as f:
+        assert [r['file'] for r in _csv.DictReader(f)] == ['train/images/openimages__ok.jpg']
+    with open(out / 'manifest_cottonweed.csv') as f:
+        assert len(list(_csv.DictReader(f))) == 1
